@@ -25,7 +25,7 @@ export interface AggregatedResult {
   status: string | null; publisher: string | null; sources: SourceRef[]; score: number; libraryContentId: string | null
 }
 
-export interface ProviderOutcome { code: string; name: string; status: 'OK' | 'ERROR' | 'TIMEOUT'; count: number; message: string | null; tookMs: number }
+export interface ProviderOutcome { code: string; name: string; status: 'OK' | 'ERROR' | 'TIMEOUT' | 'SKIPPED'; count: number; message: string | null; tookMs: number }
 export interface SearchResponse { query: string; results: AggregatedResult[]; providers: ProviderOutcome[] }
 
 export interface RemoteTitleDetails {
@@ -104,7 +104,7 @@ export interface ProviderView {
   id: string; code: string; name: string; type: 'MANGADEX' | 'COMICVINE' | 'SUWAYOMI_SOURCE' | 'LOCAL'
   enabled: boolean; priority: number; language: string | null; iconUrl: string | null; supportsSearch: boolean
   supportsDownload: boolean; metadataOnly: boolean; lastStatus: string; lastError: string | null
-  lastCheckedAt: string | null
+  lastCheckedAt: string | null; defaultContentType: 'AUTO' | ContentType | null
 }
 
 export interface SuwayomiStatus { enabled: boolean; online: boolean; baseUrl: string; version: string | null; message: string; defaultStore: string }

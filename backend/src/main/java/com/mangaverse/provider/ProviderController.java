@@ -33,11 +33,13 @@ public class ProviderController {
 
     public record ProviderView(String id, String code, String name, String type, boolean enabled, int priority,
                                String language, String iconUrl, boolean supportsSearch, boolean supportsDownload,
-                               boolean metadataOnly, String lastStatus, String lastError, Instant lastCheckedAt) {
+                               boolean metadataOnly, String lastStatus, String lastError, Instant lastCheckedAt,
+                               String defaultContentType) {
         static ProviderView of(Provider p) {
             return new ProviderView(p.getId().toString(), p.getCode(), p.getName(), p.getType().name(), p.isEnabled(),
                     p.getPriority(), p.getLanguage(), p.getIconUrl(), p.isSupportsSearch(), p.isSupportsDownload(),
-                    p.isMetadataOnly(), p.getLastStatus(), p.getLastError(), p.getLastCheckedAt());
+                    p.isMetadataOnly(), p.getLastStatus(), p.getLastError(), p.getLastCheckedAt(),
+                    p.getDefaultContentType());
         }
     }
 
@@ -46,12 +48,12 @@ public class ProviderController {
         return service.listProviders().stream().map(ProviderView::of).toList();
     }
 
-    public record ProviderUpdate(Boolean enabled, Integer priority) {
+    public record ProviderUpdate(Boolean enabled, Integer priority, String defaultContentType) {
     }
 
     @PatchMapping("/providers/{id}")
     public ProviderView update(@PathVariable UUID id, @RequestBody ProviderUpdate body) {
-        return ProviderView.of(service.update(id, body.enabled(), body.priority()));
+        return ProviderView.of(service.update(id, body.enabled(), body.priority(), body.defaultContentType()));
     }
 
     @PostMapping("/providers/health")

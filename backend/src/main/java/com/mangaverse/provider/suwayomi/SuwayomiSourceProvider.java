@@ -40,12 +40,19 @@ public class SuwayomiSourceProvider implements ContentProvider {
     private final String sourceId;
     private final String name;
     private final String lang;
+    private final ContentType forcedType;
 
     public SuwayomiSourceProvider(SuwayomiClient client, String sourceId, String name, String lang) {
+        this(client, sourceId, name, lang, null);
+    }
+
+    /** @param forcedType tipo definido para a fonte (ex.: HQ); {@code null} deduz pelos gêneros */
+    public SuwayomiSourceProvider(SuwayomiClient client, String sourceId, String name, String lang, ContentType forcedType) {
         this.client = client;
         this.sourceId = sourceId;
         this.name = name;
         this.lang = lang == null ? null : lang.toLowerCase(Locale.ROOT);
+        this.forcedType = forcedType;
     }
 
     public static boolean handles(String code) {
@@ -86,7 +93,7 @@ public class SuwayomiSourceProvider implements ContentProvider {
         List<RemoteTitle> out = new ArrayList<>();
         for (JsonNode m : Json.array(data.path("fetchSourceManga"), "mangas")) {
             out.add(new RemoteTitle(code(), displayName(), Json.text(m, "id"), Json.text(m, "title"), List.of(),
-                    Json.text(m, "description"), cover(m), guessType(m), lang == null ? Set.of() : Set.of(lang),
+                    Json.text(m, "description"), cover(m), typeOf(m), lang == null ? Set.of() : Set.of(lang),
                     null, status(Json.text(m, "status")), Json.text(m, "realUrl"), null));
         }
         return out;
@@ -99,7 +106,7 @@ public class SuwayomiSourceProvider implements ContentProvider {
             throw new ProviderException(code(), "Título não encontrado no Suwayomi.");
         }
         return new RemoteTitleDetails(code(), externalId, Json.text(m, "title"), List.of(), Json.text(m, "description"),
-                cover(m), guessType(m), splitPeople(Json.text(m, "author")), splitPeople(Json.text(m, "artist")), null,
+                cover(m), typeOf(m), splitPeople(Json.text(m, "author")), splitPeople(Json.text(m, "artist")), null,
                 strings(m.path("genre")), List.of(), lang == null ? Set.of() : Set.of(lang), null,
                 status(Json.text(m, "status")), null, Json.text(m, "realUrl"));
     }
@@ -180,6 +187,10 @@ public class SuwayomiSourceProvider implements ContentProvider {
             return null;
         }
         return thumb.startsWith("/") ? COVER_PREFIX + thumb : thumb;
+    }
+
+    private ContentType typeOf(JsonNode m) {
+        return forcedType != null ? forcedType : guessType(m);
     }
 
     static ContentType guessType(JsonNode m) {

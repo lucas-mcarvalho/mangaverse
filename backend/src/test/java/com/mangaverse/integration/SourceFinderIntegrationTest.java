@@ -38,7 +38,8 @@ class SourceFinderIntegrationTest extends IntegrationTestBase {
         br = new FakeProvider("suwayomi:42");
         when(registry.require("suwayomi:42")).thenReturn(br);
         when(registry.find("suwayomi:42")).thenReturn(Optional.of(br));
-        when(registry.searchable()).thenReturn(List.of(fake, br));
+        when(registry.searchPlan(org.mockito.ArgumentMatchers.any()))
+                .thenReturn(new com.mangaverse.provider.ProviderRegistry.SearchPlan(List.of(fake, br), List.of(), 16));
     }
 
     @Test

@@ -90,4 +90,4 @@ mangaverse:
       password: ${SUWAYOMI_PASSWORD:}
       default-extension-store: ${SUWAYOMI_EXTENSION_STORE:https://raw.githubusercontent.com/keiyoushi/extensions/repo/index.min.json}
       requests-per-second: 5
-      max-sources-per-search: ${SUWAYOMI_MAX_SOURCES_PER_SEARCH:8}
+      max-sources-per-search: ${SUWAYOMI_MAX_SOURCES_PER_SEARCH:16}

@@ -96,6 +96,53 @@ class SuwayomiProviderTest {
     }
 
     @Test
+    void forcedTypeOverridesGenreGuess() {
+        MockHttp http = new MockHttp(req -> Reply.json("""
+                {"data":{"fetchSourceManga":{"hasNextPage":false,"mangas":[
+                  {"id":165,"title":"Batman","thumbnailUrl":"/api/v1/manga/165/thumbnail","genre":[]}]}}}"""));
+        SuwayomiSourceProvider auto = new SuwayomiSourceProvider(client(http), "1", "HQ Now!", "pt-BR");
+        SuwayomiSourceProvider comics = new SuwayomiSourceProvider(client(http), "1", "HQ Now!", "pt-BR", ContentType.COMIC);
+        assertThat(auto.search(new SearchQuery("batman", Set.of(), Set.of(), 5)).get(0).type()).isEqualTo(ContentType.MANGA);
+        assertThat(comics.search(new SearchQuery("batman", Set.of(), Set.of(ContentType.COMIC), 5)))
+                .singleElement().satisfies(t -> assertThat(t.type()).isEqualTo(ContentType.COMIC));
+    }
+
+    @Test
+    void missingThumbnailIsRetriedAfterLoadingDetails() throws Exception {
+        java.io.ByteArrayOutputStream png = new java.io.ByteArrayOutputStream();
+        javax.imageio.ImageIO.write(new java.awt.image.BufferedImage(2, 2, java.awt.image.BufferedImage.TYPE_INT_RGB), "png", png);
+        java.util.concurrent.atomic.AtomicBoolean detailsLoaded = new java.util.concurrent.atomic.AtomicBoolean();
+        MockHttp http = new MockHttp(req -> {
+            if (req.url().getPath().equals("/api/graphql")) {
+                detailsLoaded.set(true);
+                return Reply.json("{\"data\":{\"fetchManga\":{\"manga\":{\"id\":165}}}}");
+            }
+            return detailsLoaded.get() ? new Reply(200, "image/png", png.toByteArray()) : Reply.status(400);
+        });
+        SuwayomiClient client = client(http);
+
+        var image = client.fetchThumbnail("/api/v1/manga/165/thumbnail");
+
+        assertThat(image.data()).isEqualTo(png.toByteArray());
+        assertThat(http.requests).extracting(java.net.URI::getPath)
+                .containsExactly("/api/v1/manga/165/thumbnail", "/api/graphql", "/api/v1/manga/165/thumbnail");
+        // Outros recursos (páginas, ícones) não disparam a recarga
+        detailsLoaded.set(false);
+        assertThatThrownBy(() -> client.fetchThumbnail("/api/v1/extension/icon/x.png")).isInstanceOf(ProviderException.class);
+    }
+
+    @Test
+    void errorMessagesAreSummarizedWithoutStackTraces() {
+        String trace = "Exception while fetching data (/fetchSourceManga) : Timeout\n\njava.io.IOException: Timeout\n\tat x.y(Unknown Source)";
+        assertThat(SuwayomiClient.friendlyError(trace)).isEqualTo("Timeout");
+        assertThat(SuwayomiClient.friendlyError("Exception while fetching data (/fetchSourceManga) : Cloudflare bypass currently disabled\n\tat a"))
+                .contains("Cloudflare").contains("não contorna").doesNotContain("\tat");
+        MockHttp http = new MockHttp(req -> Reply.json("{\"errors\":[{\"message\":\"" + trace.replace("\n", "\\n").replace("\t", "\\t") + "\"}],\"data\":null}"));
+        assertThatThrownBy(() -> client(http).execute(SuwayomiClient.Q_SOURCES, Map.of()))
+                .isInstanceOf(ProviderException.class).hasMessage("Erro do Suwayomi: Timeout");
+    }
+
+    @Test
     void disabledIntegrationDoesNotCallServer() {
         MockHttp http = new MockHttp(req -> Reply.json("{}"));
         SuwayomiClient client = new SuwayomiClient(new AppProperties.Suwayomi(false, "http://x", null, null, null, 1, 1),

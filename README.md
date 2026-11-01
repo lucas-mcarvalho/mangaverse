@@ -47,7 +47,7 @@ automático de novos capítulos.
 ## Status do projeto
 
 Todas as fases planejadas foram implementadas e verificadas contra serviços reais
-(MangaDex e Suwayomi v2.4.2366) e com a suíte automatizada (62 testes).
+(MangaDex e Suwayomi v2.4.2366) e com a suíte automatizada (66 testes).
 
 | Fase | Situação | O que foi entregue |
 |---|---|---|
@@ -305,7 +305,7 @@ Todas as credenciais vêm de variáveis de ambiente (nunca do código). Principa
 | `COMICVINE_API_KEY` | *(vazio)* | Chave do Comic Vine; sem ela o provedor fica "Não configurado" |
 | `SUWAYOMI_URL` | `http://localhost:4567` | Endereço do Suwayomi |
 | `SUWAYOMI_USERNAME` / `_PASSWORD` | *(vazio)* | Se o Suwayomi usar autenticação básica |
-| `SUWAYOMI_MAX_SOURCES_PER_SEARCH` | `8` | Máximo de fontes do Suwayomi consultadas por pesquisa |
+| `SUWAYOMI_MAX_SOURCES_PER_SEARCH` | `16` | Máximo de fontes do Suwayomi consultadas por pesquisa (as excedentes aparecem como "não consultada") |
 | `MANGADEX_ENABLED`, `COMICVINE_ENABLED`, `SUWAYOMI_ENABLED` | `true` | Liga/desliga integrações |
 | `LOG_FORMAT` | *(texto)* | `ecs`, `logstash` ou `gelf` para logs estruturados |
 
@@ -320,6 +320,8 @@ idiomas preferidos (padrão `pt-br, en`) e classificação de conteúdo do Manga
 1. **Fontes e extensões** → *Adicionar Keiyoushi* (repositório de extensões compatível com o Suwayomi).
 2. Filtre por **Português (BR)** e instale as extensões desejadas. As fontes são sincronizadas
    automaticamente; fontes pt-BR já vêm habilitadas na pesquisa (as demais podem ser ligadas manualmente).
+   Em cada fonte dá para definir o **tipo** (Automático, Mangá, Manhwa, Manhua ou HQ). Extensões de HQ conhecidas,
+   como o HQ Now!, já entram como HQ: os títulos aparecem no filtro "HQ", usam "Edição" e são baixados em `HQs/`.
 3. **Pesquisa global**: digite, por exemplo, *Solo Leveling* ou *Batman Absolute*. Cada resultado mostra
    de quais fontes veio; resultados com tradução pt-BR aparecem primeiro.
 4. Abra um título → **Adicionar à biblioteca** (ou *Adicionar e monitorar*).
@@ -439,7 +441,7 @@ cd backend
 ./mvnw test
 ```
 
-62 testes (JUnit 5 + AssertJ + Mockito). Os de integração usam **Testcontainers** com PostgreSQL 16
+66 testes (JUnit 5 + AssertJ + Mockito). Os de integração usam **Testcontainers** com PostgreSQL 16
 real e as migrations Flyway, portanto exigem Docker em execução. Nenhum teste acessa sites externos:
 os provedores são exercitados com respostas HTTP simuladas.
 

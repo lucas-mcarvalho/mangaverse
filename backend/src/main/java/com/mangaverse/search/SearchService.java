@@ -66,7 +66,8 @@ public class SearchService {
         String q = text.trim();
         Set<ContentType> typeFilter = types == null || types.isEmpty() ? EnumSet.noneOf(ContentType.class) : EnumSet.copyOf(types);
         SearchQuery query = new SearchQuery(q, new LinkedHashSet<>(settings.languages()), typeFilter, 20);
-        List<ContentProvider> providers = registry.searchable().stream()
+        ProviderRegistry.SearchPlan plan = registry.searchPlan(typeFilter);
+        List<ContentProvider> providers = plan.selected().stream()
                 .filter(p -> providerCodes == null || providerCodes.isEmpty() || providerCodes.contains(p.code()))
                 .toList();
 
@@ -100,6 +101,14 @@ public class SearchService {
                 if (cause instanceof ProviderException) {
                     providerService.recordStatus(p.code(), ProviderHealth.offline(message));
                 }
+            }
+        }
+
+        for (Provider skipped : plan.skipped()) {
+            if (providerCodes == null || providerCodes.isEmpty() || providerCodes.contains(skipped.getCode())) {
+                outcomes.add(new ProviderOutcome(skipped.getCode(), skipped.getName() + " (" + skipped.getLanguage() + ") · Suwayomi",
+                        "SKIPPED", 0, "Não consultada: limite de " + plan.limit()
+                        + " fontes do Suwayomi por pesquisa (SUWAYOMI_MAX_SOURCES_PER_SEARCH). Ajuste a prioridade ou desative fontes.", 0));
             }
         }
 

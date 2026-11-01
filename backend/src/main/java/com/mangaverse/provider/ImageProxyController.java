@@ -39,6 +39,9 @@ public class ImageProxyController {
     private final Cache<String, FetchedImage> cache = Caffeine.newBuilder()
             .maximumWeight(150L * 1024 * 1024).weigher((String k, FetchedImage v) -> v.data().length)
             .expireAfterWrite(Duration.ofHours(12)).build();
+    /** Capas que falharam: evita repetir chamadas às fontes a cada renderização. */
+    private final Cache<String, Boolean> failures = Caffeine.newBuilder()
+            .maximumSize(5000).expireAfterWrite(Duration.ofMinutes(30)).build();
 
     public ImageProxyController(HttpSupport http, SuwayomiClient suwayomi) {
         this.http = http;
@@ -51,7 +54,16 @@ public class ImageProxyController {
         if (src == null || src.length() > 2048) {
             throw ApiException.badRequest("Imagem inválida.");
         }
-        FetchedImage image = cache.get(src, this::load);
+        if (failures.getIfPresent(src) != null) {
+            throw ApiException.notFound("Capa indisponível.");
+        }
+        FetchedImage image;
+        try {
+            image = cache.get(src, this::load);
+        } catch (RuntimeException e) {
+            failures.put(src, Boolean.TRUE);
+            throw e;
+        }
         return ResponseEntity.ok()
                 .contentType(MediaType.parseMediaType(image.contentType()))
                 .cacheControl(CacheControl.maxAge(7, TimeUnit.DAYS).cachePrivate())
@@ -62,7 +74,7 @@ public class ImageProxyController {
     private FetchedImage load(String src) {
         FetchedImage image;
         if (src.startsWith(SuwayomiSourceProvider.COVER_PREFIX)) {
-            image = suwayomi.fetchBinary(src.substring(SuwayomiSourceProvider.COVER_PREFIX.length()));
+            image = suwayomi.fetchThumbnail(src.substring(SuwayomiSourceProvider.COVER_PREFIX.length()));
         } else {
             URI uri;
             try {

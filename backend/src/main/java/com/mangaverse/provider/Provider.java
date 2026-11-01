@@ -43,6 +43,7 @@ public class Provider {
     private String lastStatus = "UNKNOWN";
     private String lastError;
     private Instant lastCheckedAt;
+    private String defaultContentType;
     private Instant createdAt;
     private Instant updatedAt;
 
@@ -91,5 +92,15 @@ public class Provider {
     public String getLastError() { return lastError; }
     public void setLastError(String lastError) { this.lastError = lastError; }
     public Instant getLastCheckedAt() { return lastCheckedAt; }
+    public String getDefaultContentType() { return defaultContentType; }
+    public void setDefaultContentType(String defaultContentType) { this.defaultContentType = defaultContentType; }
+
+    /** Tipo imposto pelo usuário (ou pelo padrão conhecido da extensão); vazio = deduzir pelos gêneros. */
+    public java.util.Optional<com.mangaverse.provider.spi.ContentType> forcedType() {
+        if (defaultContentType == null || "AUTO".equals(defaultContentType)) {
+            return java.util.Optional.empty();
+        }
+        return java.util.Optional.of(com.mangaverse.provider.spi.ContentType.valueOf(defaultContentType));
+    }
     public void setLastCheckedAt(Instant lastCheckedAt) { this.lastCheckedAt = lastCheckedAt; }
 }

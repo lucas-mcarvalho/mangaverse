@@ -5,6 +5,8 @@ import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
@@ -67,6 +69,8 @@ public class SuwayomiClient {
 
     public static final String Q_MANGA = "query($id: Int!) { manga(id: $id) { %s source { id name lang } } }".formatted(MANGA_FIELDS);
 
+    public static final String M_FETCH_MANGA = "mutation($id: Int!) { fetchManga(input: {id: $id}) { manga { id thumbnailUrl } } }";
+
     public static final String M_FETCH_PAGES = "mutation($id: Int!) { fetchChapterPages(input: {chapterId: $id}) { pages } }";
 
     private final AppProperties.Suwayomi config;
@@ -123,7 +127,7 @@ public class SuwayomiClient {
         JsonNode data = body.path("data");
         if (errors.isArray() && !errors.isEmpty()) {
             List<String> messages = new ArrayList<>();
-            errors.forEach(e -> messages.add(Json.text(e, "message")));
+            errors.forEach(e -> messages.add(friendlyError(Json.text(e, "message"))));
             if (!allowPartial || data.isMissingNode() || data.isNull()) {
                 throw new ProviderException(CODE, "Erro do Suwayomi: " + String.join("; ", messages));
             }
@@ -133,6 +137,22 @@ public class SuwayomiClient {
 
     public JsonNode execute(String query, Map<String, Object> variables) {
         return execute(query, variables, false);
+    }
+
+    /**
+     * Resume erros do Suwayomi para exibição: remove stack traces e o prefixo técnico do GraphQL
+     * e explica bloqueios anti-bot (que o MangaVerse não contorna).
+     */
+    static String friendlyError(String raw) {
+        if (raw == null || raw.isBlank()) {
+            return "erro desconhecido";
+        }
+        if (raw.contains("Cloudflare")) {
+            return "o site está protegido por Cloudflare (anti-bot) e não pode ser consultado; o MangaVerse não contorna essa proteção";
+        }
+        String first = raw.lines().findFirst().orElse(raw).trim();
+        first = first.replaceFirst("^Exception while fetching data \\([^)]*\\)\\s*:\\s*", "");
+        return first.length() > 300 ? first.substring(0, 300) + "…" : first;
     }
 
     /** Obtém um recurso binário (página, capa, ícone) servido pelo Suwayomi. */
@@ -146,6 +166,25 @@ public class SuwayomiClient {
                 .accept(MediaType.ALL).retrieve().toEntity(byte[].class), 1);
         String type = response.getHeaders().getContentType() == null ? "image/jpeg" : response.getHeaders().getContentType().toString();
         return new FetchedImage(response.getBody() == null ? new byte[0] : response.getBody(), type);
+    }
+
+    private static final Pattern MANGA_THUMBNAIL = Pattern.compile("^/api/v1/manga/(\\d+)/thumbnail$");
+
+    /**
+     * Algumas extensões (ex.: HQ Now!) só informam a capa nos detalhes do título; antes disso o Suwayomi
+     * responde erro. Nesse caso carrega os detalhes ({@code fetchManga}) e tenta a capa uma única vez.
+     */
+    public FetchedImage fetchThumbnail(String path) {
+        try {
+            return fetchBinary(path);
+        } catch (ProviderException first) {
+            Matcher m = MANGA_THUMBNAIL.matcher(path == null ? "" : path);
+            if (!m.matches()) {
+                throw first;
+            }
+            execute(M_FETCH_MANGA, Map.of("id", Integer.parseInt(m.group(1))), true);
+            return fetchBinary(path);
+        }
     }
 
     private void authorize(HttpHeaders headers) {

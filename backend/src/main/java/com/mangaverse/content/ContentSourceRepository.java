@@ -15,4 +15,7 @@ public interface ContentSourceRepository extends JpaRepository<ContentSource, UU
     List<ContentSource> findByContentId(UUID contentId);
 
     boolean existsByProviderId(UUID providerId);
+
+    @Query("select cs from ContentSource cs join fetch cs.content where cs.provider.id = :providerId")
+    List<ContentSource> findByProviderId(UUID providerId);
 }
