@@ -6,6 +6,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.function.Function;
 
+import org.springframework.core.io.buffer.DefaultDataBufferFactory;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.reactive.function.client.ClientRequest;
 import org.springframework.web.reactive.function.client.ClientResponse;
@@ -47,7 +48,8 @@ public final class MockHttp {
             requests.add(req.url());
             Reply r = handler.apply(req);
             return Mono.just(ClientResponse.create(HttpStatus.valueOf(r.status()))
-                    .header("Content-Type", r.contentType()).body(new String(r.body(), java.nio.charset.StandardCharsets.ISO_8859_1)).build());
+                    .header("Content-Type", r.contentType())
+                    .body(reactor.core.publisher.Flux.just(DefaultDataBufferFactory.sharedInstance.wrap(r.body()))).build());
         });
         if (baseUrl != null) {
             b.baseUrl(baseUrl);

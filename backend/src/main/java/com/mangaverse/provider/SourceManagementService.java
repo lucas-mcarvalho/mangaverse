@@ -15,6 +15,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.boot.context.event.ApplicationReadyEvent;
 import org.springframework.context.event.EventListener;
+import org.springframework.cache.CacheManager;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -22,6 +23,10 @@ import com.github.benmanes.caffeine.cache.Cache;
 import com.github.benmanes.caffeine.cache.Caffeine;
 import com.mangaverse.common.ApiException;
 import com.mangaverse.common.Json;
+import com.mangaverse.config.CacheConfig;
+import com.mangaverse.content.Content;
+import com.mangaverse.content.ContentRepository;
+import com.mangaverse.content.ContentSource;
 import com.mangaverse.content.ContentSourceRepository;
 import com.mangaverse.provider.comicvine.ComicVineProvider;
 import com.mangaverse.provider.mangadex.MangaDexProvider;
@@ -39,22 +44,31 @@ public class SourceManagementService {
 
     private final ProviderRepository providers;
     private final ContentSourceRepository contentSources;
+    private final ContentRepository contents;
     private final SuwayomiClient suwayomi;
     private final MangaDexProvider mangaDex;
     private final ComicVineProvider comicVine;
     private final ProviderService providerService;
+    private final CacheManager cacheManager;
+    /** Extensões de HQs ocidentais: entram como tipo HQ por padrão (o usuário pode mudar). */
+    static final Set<String> COMIC_EXTENSIONS = Set.of("hqnow", "readcomicsonline", "xoxocomics", "comichubfree",
+            "digitalcomicmuseum", "comicskingdom");
+    static final Set<String> ALLOWED_TYPES = Set.of("AUTO", "MANGA", "MANHWA", "MANHUA", "COMIC");
+
     private final Cache<String, List<ExtensionView>> extensionCache = Caffeine.newBuilder()
             .expireAfterWrite(Duration.ofMinutes(3)).build();
 
-    public SourceManagementService(ProviderRepository providers, ContentSourceRepository contentSources,
+    public SourceManagementService(ProviderRepository providers, ContentSourceRepository contentSources, ContentRepository contents,
                                    SuwayomiClient suwayomi, MangaDexProvider mangaDex, ComicVineProvider comicVine,
-                                   ProviderService providerService) {
+                                   ProviderService providerService, CacheManager cacheManager) {
         this.providers = providers;
         this.contentSources = contentSources;
+        this.contents = contents;
         this.suwayomi = suwayomi;
         this.mangaDex = mangaDex;
         this.comicVine = comicVine;
         this.providerService = providerService;
+        this.cacheManager = cacheManager;
     }
 
     public record ExtensionView(String pkgName, String name, String lang, String versionName, String iconUrl,
@@ -91,7 +105,27 @@ public class SourceManagementService {
 
     @Transactional
     public Provider update(java.util.UUID id, Boolean enabled, Integer priority) {
+        return update(id, enabled, priority, null);
+    }
+
+    /**
+     * Atualiza a fonte. Ao definir um tipo (ex.: HQ), os títulos importados somente desta fonte
+     * também passam a usar esse tipo (afeta rótulos "Edição" e a pasta HQs/ dos próximos downloads).
+     */
+    @Transactional
+    public Provider update(java.util.UUID id, Boolean enabled, Integer priority, String defaultContentType) {
         Provider p = providers.findById(id).orElseThrow(() -> ApiException.notFound("Provedor não encontrado."));
+        if (defaultContentType != null) {
+            if (!ALLOWED_TYPES.contains(defaultContentType)) {
+                throw ApiException.badRequest("Tipo inválido: " + defaultContentType);
+            }
+            if (p.getType() != ProviderType.SUWAYOMI_SOURCE) {
+                throw ApiException.badRequest("O tipo padrão só pode ser definido para fontes do Suwayomi.");
+            }
+            p.setDefaultContentType(defaultContentType);
+            applyTypeToContents(p);
+            clearMetadataCaches();
+        }
         if (enabled != null) {
             p.setEnabled(enabled);
         }
@@ -111,6 +145,33 @@ public class SourceManagementService {
         result.put("local", ProviderHealth.online("Arquivos locais"));
         result.forEach(providerService::recordStatus);
         return result;
+    }
+
+    /** Aplica o tipo da fonte aos títulos importados somente dela (títulos locais ou com outras fontes ficam como estão). */
+    void applyTypeToContents(Provider p) {
+        p.forcedType().ifPresent(type -> {
+            int changed = 0;
+            for (ContentSource cs : contentSources.findByProviderId(p.getId())) {
+                Content content = cs.getContent();
+                boolean onlyThisProvider = contentSources.findByContentId(content.getId()).stream()
+                        .allMatch(other -> other.getProvider().getId().equals(p.getId()));
+                if (onlyThisProvider && content.getLocalPath() == null && content.getType() != type) {
+                    content.setType(type);
+                    contents.save(content);
+                    changed++;
+                }
+            }
+            log.info("Fonte {} definida como {}; {} título(s) atualizado(s)", p.getName(), type, changed);
+        });
+    }
+
+    private void clearMetadataCaches() {
+        for (String cache : List.of(CacheConfig.SEARCH, CacheConfig.DETAILS, CacheConfig.DISCOVER)) {
+            var c = cacheManager.getCache(cache);
+            if (c != null) {
+                c.clear();
+            }
+        }
     }
 
     public SuwayomiStatus suwayomiStatus() {
@@ -153,6 +214,14 @@ public class SourceManagementService {
             p.setSupportsSearch(true);
             String icon = Json.text(s, "iconUrl");
             p.setIconUrl(icon != null && icon.startsWith("/") ? SuwayomiSourceProvider.COVER_PREFIX + icon : icon);
+            if (p.getDefaultContentType() == null) {
+                String pkg = Json.text(s.path("extension"), "pkgName");
+                String shortPkg = pkg == null ? "" : pkg.substring(pkg.lastIndexOf('.') + 1);
+                p.setDefaultContentType(COMIC_EXTENSIONS.contains(shortPkg) ? "COMIC" : "AUTO");
+                if (p.getId() != null) {
+                    applyTypeToContents(p); // fonte já existente marcada como HQ pela primeira vez
+                }
+            }
             p.setLastStatus("ONLINE");
             p.setLastError(null);
             providers.save(p);
@@ -211,6 +280,23 @@ public class SourceManagementService {
             throw ApiException.notFound("Extensão não encontrada no Suwayomi. Atualize a lista de extensões e tente novamente.");
         }
         syncSuwayomiSources();
+        if ("install".equals(action)) {
+            enableSourcesOf(pkgName);
+        }
+    }
+
+    /** Fontes de uma extensão instalada pelo usuário entram habilitadas na pesquisa, em qualquer idioma. */
+    void enableSourcesOf(String pkgName) {
+        JsonNode data = suwayomi.execute(SuwayomiClient.Q_SOURCES, Map.of());
+        for (JsonNode src : Json.array(data.path("sources"), "nodes")) {
+            if (pkgName.equals(Json.text(src.path("extension"), "pkgName"))) {
+                providers.findByCode(SuwayomiSourceProvider.PREFIX + Json.text(src, "id")).ifPresent(p -> {
+                    p.setEnabled(true);
+                    providers.save(p);
+                    log.info("Fonte {} ({}) habilitada após instalação", p.getName(), p.getLanguage());
+                });
+            }
+        }
     }
 
     public List<StoreView> stores() {
