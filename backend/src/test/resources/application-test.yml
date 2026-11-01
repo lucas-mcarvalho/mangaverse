@@ -1,0 +1,15 @@
+mangaverse:
+  scheduling:
+    enabled: false
+  admin:
+    username: admin
+    password: senha-de-teste-123
+  http:
+    max-retries: 0
+  providers:
+    suwayomi:
+      enabled: false
+logging:
+  level:
+    root: WARN
+    com.mangaverse: INFO

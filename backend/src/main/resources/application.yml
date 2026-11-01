@@ -1,0 +1,93 @@
+spring:
+  application:
+    name: mangaverse
+  datasource:
+    url: ${DB_URL:jdbc:postgresql://localhost:5433/mangaverse}
+    username: ${DB_USERNAME:mangaverse}
+    password: ${DB_PASSWORD:mangaverse}
+    hikari:
+      maximum-pool-size: 15
+  jpa:
+    open-in-view: false
+    hibernate:
+      ddl-auto: validate
+    properties:
+      hibernate:
+        jdbc:
+          time_zone: UTC
+  flyway:
+    enabled: true
+    locations: classpath:db/migration
+  threads:
+    virtual:
+      enabled: true
+  servlet:
+    multipart:
+      enabled: false
+
+server:
+  port: ${SERVER_PORT:8090}
+  error:
+    include-message: never
+  servlet:
+    session:
+      timeout: 30d
+      cookie:
+        http-only: true
+        same-site: lax
+        name: MANGAVERSE_SESSION
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health
+  endpoint:
+    health:
+      probes:
+        enabled: true
+
+logging:
+  structured:
+    format:
+      console: ${LOG_FORMAT:}
+  level:
+    com.mangaverse: ${LOG_LEVEL:INFO}
+
+mangaverse:
+  admin:
+    username: ${MANGAVERSE_ADMIN_USERNAME:admin}
+    password: ${MANGAVERSE_ADMIN_PASSWORD:}
+  storage:
+    # Lista separada por vírgula com os únicos diretórios onde o MangaVerse pode ler/gravar.
+    allowed-roots: ${MANGAVERSE_STORAGE_ALLOWED_ROOTS:${user.home}/MangaVerse}
+    # Diretório padrão da biblioteca (precisa estar dentro de allowed-roots).
+    library-dir: ${MANGAVERSE_LIBRARY_DIR:${user.home}/MangaVerse/Biblioteca}
+    # Dados internos (cache de CBR, temporários de download).
+    data-dir: ${MANGAVERSE_DATA_DIR:${user.home}/.local/share/mangaverse}
+    cbr-extractor: ${MANGAVERSE_CBR_EXTRACTOR:auto}
+  http:
+    user-agent: ${MANGAVERSE_USER_AGENT:MangaVerse/0.1 (+https://github.com/local/mangaverse)}
+    connect-timeout: 10s
+    response-timeout: 30s
+    max-retries: 3
+  providers:
+    mangadex:
+      enabled: ${MANGADEX_ENABLED:true}
+      base-url: ${MANGADEX_BASE_URL:https://api.mangadex.org}
+      uploads-url: https://uploads.mangadex.org
+      report-url: https://api.mangadex.network/report
+      requests-per-second: 4
+    comicvine:
+      enabled: ${COMICVINE_ENABLED:true}
+      base-url: ${COMICVINE_BASE_URL:https://comicvine.gamespot.com/api}
+      api-key: ${COMICVINE_API_KEY:}
+      requests-per-second: 0.5
+    suwayomi:
+      enabled: ${SUWAYOMI_ENABLED:true}
+      base-url: ${SUWAYOMI_URL:http://localhost:4567}
+      username: ${SUWAYOMI_USERNAME:}
+      password: ${SUWAYOMI_PASSWORD:}
+      default-extension-store: ${SUWAYOMI_EXTENSION_STORE:https://raw.githubusercontent.com/keiyoushi/extensions/repo/index.min.json}
+      requests-per-second: 5
+      max-sources-per-search: ${SUWAYOMI_MAX_SOURCES_PER_SEARCH:8}

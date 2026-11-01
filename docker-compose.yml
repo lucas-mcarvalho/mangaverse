@@ -1,0 +1,82 @@
+name: mangaverse
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-mangaverse}
+      POSTGRES_USER: ${POSTGRES_USER:-mangaverse}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?defina POSTGRES_PASSWORD no .env}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    ports:
+      - "127.0.0.1:${POSTGRES_PORT:-5433}:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  suwayomi:
+    image: ghcr.io/suwayomi/suwayomi-server:${SUWAYOMI_TAG:-stable}
+    restart: unless-stopped
+    environment:
+      TZ: ${TZ:-America/Sao_Paulo}
+    volumes:
+      - suwayomi_data:/home/suwayomi/.local/share/Tachidesk
+    ports:
+      - "127.0.0.1:${SUWAYOMI_PORT:-4567}:4567"
+
+  backend:
+    build: ./backend
+    restart: unless-stopped
+    user: "${PUID:-1000}:${PGID:-1000}"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      DB_URL: jdbc:postgresql://postgres:5432/${POSTGRES_DB:-mangaverse}
+      DB_USERNAME: ${POSTGRES_USER:-mangaverse}
+      DB_PASSWORD: ${POSTGRES_PASSWORD}
+      MANGAVERSE_ADMIN_USERNAME: ${MANGAVERSE_ADMIN_USERNAME:-admin}
+      MANGAVERSE_ADMIN_PASSWORD: ${MANGAVERSE_ADMIN_PASSWORD:-}
+      MANGAVERSE_STORAGE_ALLOWED_ROOTS: /library,/extra
+      MANGAVERSE_LIBRARY_DIR: /library
+      MANGAVERSE_DATA_DIR: /data
+      SUWAYOMI_URL: http://suwayomi:4567
+      SUWAYOMI_ENABLED: ${SUWAYOMI_ENABLED:-true}
+      SUWAYOMI_USERNAME: ${SUWAYOMI_USERNAME:-}
+      SUWAYOMI_PASSWORD: ${SUWAYOMI_PASSWORD:-}
+      COMICVINE_API_KEY: ${COMICVINE_API_KEY:-}
+      MANGAVERSE_USER_AGENT: ${MANGAVERSE_USER_AGENT:-MangaVerse/0.1 (self-hosted)}
+      LOG_FORMAT: ${LOG_FORMAT:-ecs}
+      TZ: ${TZ:-America/Sao_Paulo}
+    volumes:
+      # Biblioteca principal no host (downloads e importação)
+      - ${MANGAVERSE_LIBRARY_HOST_DIR:-./data/library}:/library
+      # Diretório extra opcional (ex.: outro disco). Monte aqui e use /extra/... nas Configurações.
+      - ${MANGAVERSE_EXTRA_HOST_DIR:-./data/extra}:/extra
+      # Dados internos (cache de CBR e temporários de download)
+      - backend_data:/data
+    ports:
+      - "127.0.0.1:${BACKEND_PORT:-8090}:8090"
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fs http://localhost:8090/actuator/health || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+      start_period: 40s
+
+  frontend:
+    build: ./frontend
+    restart: unless-stopped
+    depends_on:
+      - backend
+    ports:
+      - "${FRONTEND_BIND:-127.0.0.1}:${FRONTEND_PORT:-5180}:80"
+
+volumes:
+  postgres_data:
+  suwayomi_data:
+  backend_data:
