@@ -8,6 +8,22 @@ automático de novos capítulos.
 - **Frontend:** React 19 + TypeScript, Vite, Tailwind CSS 4, React Router, TanStack Query, Axios, Lucide
 - **Infra:** Docker Compose com PostgreSQL, backend, frontend (nginx) e Suwayomi Server
 
+![Dashboard do MangaVerse](docs/screenshots/dashboard.jpg)
+
+## Telas
+
+| Pesquisa global | Explorar |
+|---|---|
+| ![Pesquisa global com resultados agregados de várias fontes](docs/screenshots/pesquisa.jpg) | ![Explorar títulos populares](docs/screenshots/explorar.jpg) |
+| **Minha Biblioteca** | **Detalhes do título** |
+| ![Biblioteca com filtros e progresso](docs/screenshots/biblioteca.jpg) | ![Página do título com status, monitoramento e fontes](docs/screenshots/titulo.jpg) |
+| **Capítulos com busca, ordem e uma versão por capítulo** | **Leitor** |
+| ![Lista de capítulos com busca e ordenação](docs/screenshots/capitulos.jpg) | ![Leitor de página única](docs/screenshots/leitor.jpg) |
+| **Fontes e extensões (Suwayomi/Keiyoushi)** | **Configurações** |
+| ![Gerenciamento de fontes e extensões](docs/screenshots/fontes.jpg) | ![Configurações de armazenamento, downloads e monitoramento](docs/screenshots/configuracoes.jpg) |
+
+<p align="center"><img src="docs/screenshots/mobile.jpg" alt="Biblioteca e leitor no celular" width="520"></p>
+
 ---
 
 ## Sumário
@@ -311,7 +327,9 @@ idiomas preferidos (padrão `pt-br, en`) e classificação de conteúdo do Manga
 6. Ative **Monitorar novas edições** e, se quiser, **Baixar automaticamente** (exige também a opção
    global em Configurações).
 7. Já tem arquivos? **Minha Biblioteca → Importar arquivos locais** e escolha a pasta.
-8. Faltando capítulos? Na página do título, **Encontrar mais fontes** procura a mesma obra nas outras
+8. Na lista de capítulos, use a **busca** (número como `105` ou `cap 105`, ou parte do título/grupo) e alterne entre
+   **mais antigos** e **mais recentes primeiro** — a ordem escolhida é lembrada.
+9. Faltando capítulos? Na página do título, **Encontrar mais fontes** procura a mesma obra nas outras
    fontes habilitadas e vincula as que trazem capítulos legíveis que você ainda não tem. Por padrão a lista mostra
    **uma versão por capítulo** (baixada > legível no idioma preferido > legível em outro idioma > link oficial).
 
