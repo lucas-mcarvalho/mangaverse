@@ -63,10 +63,10 @@ export default function SearchPage() {
         <div className="flex flex-wrap gap-2">
           {data.providers.map((p) => (
             <span key={p.code} title={p.message ?? ''} className={cx('inline-flex items-center gap-1.5 rounded-lg border px-2.5 py-1 text-xs',
-              p.status === 'OK' ? 'border-emerald-500/30 text-emerald-300' : 'border-amber-500/30 text-amber-300')}>
+              p.status === 'OK' ? 'border-emerald-500/30 text-emerald-300' : p.status === 'SKIPPED' ? 'border-ink-600 text-zinc-500' : 'border-amber-500/30 text-amber-300')}>
               {p.status === 'OK' ? <CheckCircle2 className="h-3.5 w-3.5" /> : p.status === 'TIMEOUT' ? <Clock className="h-3.5 w-3.5" /> : <AlertTriangle className="h-3.5 w-3.5" />}
-              {p.name}: {p.status === 'OK' ? `${p.count} resultado(s)` : p.message}
-              <span className="text-zinc-500">· {(p.tookMs / 1000).toFixed(1)}s</span>
+              {p.name}: {p.status === 'OK' ? `${p.count} resultado(s)` : p.status === 'SKIPPED' ? 'não consultada (limite)' : p.message}
+              {p.status !== 'SKIPPED' && <span className="text-zinc-500">· {(p.tookMs / 1000).toFixed(1)}s</span>}
             </span>
           ))}
         </div>
