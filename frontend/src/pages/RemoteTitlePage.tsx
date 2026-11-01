@@ -4,6 +4,7 @@ import { useMemo, useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router'
 import { api, errorMessage } from '../api/client'
 import type { ContentView, RemoteChapter, RemoteTitleView } from '../api/types'
+import { ChapterControls, matchesChapter, useChapterControls } from '../components/ChapterControls'
 import { useToast } from '../components/Toast'
 import { Badge, Cover, EmptyState, ErrorState, PageLoader, Spinner } from '../components/ui'
 import { groupByVolume } from '../lib/chapters'
@@ -15,6 +16,7 @@ export default function RemoteTitlePage() {
   const toast = useToast()
   const qc = useQueryClient()
   const [lang, setLang] = useState<string>('all')
+  const controls = useChapterControls()
 
   const { data, isLoading, error, refetch } = useQuery({
     queryKey: ['title', providerCode, externalId],
@@ -43,7 +45,7 @@ export default function RemoteTitlePage() {
     onError: (e) => toast.error(errorMessage(e)),
   })
 
-  const chapters = useMemo(() => (data?.chapters ?? []).filter((c) => lang === 'all' || c.language === lang), [data, lang])
+  const chapters = useMemo(() => (data?.chapters ?? []).filter((c) => (lang === 'all' || c.language === lang) && matchesChapter(c, controls.query)), [data, lang, controls.query])
   const languages = useMemo(() => Array.from(new Set((data?.chapters ?? []).map((c) => c.language).filter(Boolean))) as string[], [data])
 
   if (isLoading) return <PageLoader />
@@ -106,9 +108,12 @@ export default function RemoteTitlePage() {
             </div>
           )}
         </div>
+        {(data.chapters.length > 0) && <ChapterControls {...controls} comic={d.type === 'COMIC'} />}
         {data.chaptersError && <ErrorState message={`Não foi possível carregar os capítulos: ${data.chaptersError}`} onRetry={refetch} />}
-        {!data.chaptersError && chapters.length === 0 && <EmptyState title="Nenhum capítulo disponível" description="A fonte não possui capítulos nos idiomas configurados." />}
-        {groupByVolume(chapters).map((g) => (
+        {!data.chaptersError && chapters.length === 0 && (controls.query
+          ? <EmptyState title="Nenhum capítulo encontrado" description={`Nada corresponde a "${controls.query}".`} />
+          : <EmptyState title="Nenhum capítulo disponível" description="A fonte não possui capítulos nos idiomas configurados." />)}
+        {groupByVolume(chapters, controls.desc).map((g) => (
           <div key={g.volume ?? 'none'} className="card overflow-hidden">
             <div className="border-b border-ink-700 bg-ink-800/60 px-4 py-2 text-xs font-semibold uppercase tracking-wide text-zinc-400">{g.volume ? `Volume ${g.volume}` : 'Sem volume'}</div>
             <ul className="divide-y divide-ink-700">

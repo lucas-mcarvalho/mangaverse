@@ -7,6 +7,7 @@ import { useMemo, useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router'
 import { api, errorMessage } from '../api/client'
 import type { Category, ChapterView, CheckResult, ContentView, EnqueueResult, LibraryStatus, SearchResponse, Settings } from '../api/types'
+import { ChapterControls, matchesChapter, useChapterControls } from '../components/ChapterControls'
 import { Modal } from '../components/Modal'
 import { useToast } from '../components/Toast'
 import { Badge, Cover, EmptyState, ErrorState, PageLoader, Spinner, Toggle } from '../components/ui'
@@ -27,6 +28,7 @@ export default function ContentPage() {
   const [onlyDownloaded, setOnlyDownloaded] = useState(false)
   const [linkOpen, setLinkOpen] = useState(false)
   const [bestOnly, setBestOnly] = useState(true)
+  const controls = useChapterControls()
   const [expanded, setExpanded] = useState<Set<string>>(new Set())
 
   const key = ['content', contentId]
@@ -104,7 +106,8 @@ export default function ContentPage() {
 
   const chapters = useMemo(() => (data?.chapters ?? []).filter((c) =>
     (lang === 'all' || c.language === lang || (lang === 'local' && c.providerCode === 'local')) &&
-    (!onlyUnread || !c.read) && (!onlyDownloaded || c.downloaded)), [data, lang, onlyUnread, onlyDownloaded])
+    (!onlyUnread || !c.read) && (!onlyDownloaded || c.downloaded) && matchesChapter(c, controls.query)),
+  [data, lang, onlyUnread, onlyDownloaded, controls.query])
   const preferred = settings?.languages[0] ?? 'pt-br'
   /** Uma linha por número de capítulo: escolhe a melhor versão e guarda as alternativas. */
   const rows = useMemo(() => {
@@ -265,6 +268,8 @@ export default function ContentPage() {
           </div>
         </div>
 
+        <ChapterControls {...controls} comic={comic} />
+
         {selected.size > 0 && (
           <div className="sticky top-16 z-10 flex flex-wrap items-center gap-2 rounded-xl border border-accent-500/40 bg-ink-800/95 px-4 py-2.5 shadow-xl backdrop-blur animate-fade-in">
             <span className="text-sm">{selected.size} selecionado(s)</span>
@@ -275,8 +280,10 @@ export default function ContentPage() {
           </div>
         )}
 
-        {chapters.length === 0 && <EmptyState title="Nenhum capítulo" description="Atualize as fontes ou ajuste os filtros." />}
-        {groupByVolume(rows.flatMap((r) => [r.chapter, ...(expanded.has(r.chapter.id) ? r.alternatives : [])])).map((g) => (
+        {chapters.length === 0 && (controls.query
+          ? <EmptyState title="Nenhum capítulo encontrado" description={`Nada corresponde a "${controls.query}" nas fontes vinculadas.`} />
+          : <EmptyState title="Nenhum capítulo" description="Atualize as fontes ou ajuste os filtros." />)}
+        {groupByVolume(rows.flatMap((r) => [r.chapter, ...(expanded.has(r.chapter.id) ? r.alternatives : [])]), controls.desc).map((g) => (
           <div key={g.volume ?? 'none'} className="card overflow-hidden">
             <div className="flex items-center gap-3 border-b border-ink-700 bg-ink-800/60 px-4 py-2">
               <input type="checkbox" className="accent-accent-500" checked={g.items.every((c) => selected.has(c.id))}
