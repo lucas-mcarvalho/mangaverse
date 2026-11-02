@@ -9,8 +9,10 @@ export function Modal({ open, onClose, title, children, wide }: { open: boolean;
     return () => window.removeEventListener('keydown', onKey)
   }, [open, onClose])
   if (!open) return null
+  // Sem desfoque de fundo: desfocar a página inteira pesa na GPU, que pode estar ocupada com
+  // o tradutor local, e deixa rastros enquanto a janela anima.
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4 backdrop-blur-sm animate-fade-in" onMouseDown={onClose}>
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-4 animate-fade-in" onMouseDown={onClose}>
       <div className={`card max-h-[90vh] w-full overflow-hidden shadow-2xl ${wide ? 'max-w-3xl' : 'max-w-lg'}`} onMouseDown={(e) => e.stopPropagation()}>
         <div className="flex items-center justify-between border-b border-ink-700 px-5 py-3">
           <h3 className="font-semibold text-zinc-100">{title}</h3>
