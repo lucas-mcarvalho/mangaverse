@@ -128,6 +128,18 @@ public class TranslationService {
         return cancelled;
     }
 
+    /** Páginas traduzidas, em ordem, de uma edição pronta. */
+    public synchronized List<Path> readyPages(UUID id) {
+        View current = status(id);
+        if (!"READY".equals(current.status())) throw ApiException.conflict("Aguarde a tradução da edição terminar.");
+        List<Path> result = new ArrayList<>(current.totalPages());
+        for (int i = 0; i < current.totalPages(); i++) {
+            if (!Files.isRegularFile(image(id, i))) throw ApiException.conflict("Página traduzida ausente; use Traduzir novamente.");
+            result.add(image(id, i));
+        }
+        return result;
+    }
+
     public synchronized PageData page(UUID id, int index) {
         View current = status(id);
         if (!"READY".equals(current.status())) throw ApiException.conflict("Aguarde a tradução da edição terminar.");

@@ -1,16 +1,21 @@
 package com.mangaverse.translation;
 
+import java.nio.charset.StandardCharsets;
 import java.util.UUID;
 
 import org.springframework.http.CacheControl;
+import org.springframework.http.ContentDisposition;
+import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.servlet.mvc.method.annotation.StreamingResponseBody;
 
 import com.mangaverse.user.CurrentUser;
 
@@ -18,10 +23,12 @@ import com.mangaverse.user.CurrentUser;
 @RequestMapping("/api/translations/chapters/{chapterId}")
 public class TranslationController {
     private final TranslationService service;
+    private final TranslationExport export;
     private final CurrentUser user;
 
-    public TranslationController(TranslationService service, CurrentUser user) {
+    public TranslationController(TranslationService service, TranslationExport export, CurrentUser user) {
         this.service = service;
+        this.export = export;
         this.user = user;
     }
 
@@ -40,6 +47,22 @@ public class TranslationController {
 
     @DeleteMapping
     public TranslationService.View cancel(@PathVariable UUID chapterId) { return service.cancel(chapterId); }
+
+    /** CBZ da edição traduzida salvo numa pasta permitida do servidor, escolhida pelo usuário. */
+    @PostMapping("/save")
+    public TranslationExport.Saved save(@PathVariable UUID chapterId, @RequestBody TranslationExport.SaveRequest request) {
+        return export.save(chapterId, request.directory());
+    }
+
+    /** CBZ da edição traduzida baixado pelo navegador. */
+    @GetMapping("/download")
+    public ResponseEntity<StreamingResponseBody> download(@PathVariable UUID chapterId) {
+        var pages = export.pages(chapterId);
+        var disposition = ContentDisposition.attachment().filename(export.fileName(chapterId), StandardCharsets.UTF_8).build();
+        return ResponseEntity.ok().contentType(MediaType.parseMediaType("application/vnd.comicbook+zip"))
+                .header(HttpHeaders.CONTENT_DISPOSITION, disposition.toString()).cacheControl(CacheControl.noStore())
+                .body(out -> export.write(chapterId, pages, out));
+    }
 
     @GetMapping("/pages/{index}")
     public ResponseEntity<byte[]> page(@PathVariable UUID chapterId, @PathVariable int index) {

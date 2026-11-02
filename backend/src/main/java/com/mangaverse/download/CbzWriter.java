@@ -33,23 +33,30 @@ public final class CbzWriter {
 
     /** Grava as imagens (já ordenadas) no CBZ, com ComicInfo.xml opcional. */
     public static void write(Path target, List<Path> pages, ComicInfo info) throws IOException {
-        try (OutputStream out = Files.newOutputStream(target);
-             ZipOutputStream zip = new ZipOutputStream(out, StandardCharsets.UTF_8)) {
-            zip.setLevel(Deflater.BEST_SPEED);
-            int width = Math.max(3, String.valueOf(pages.size()).length());
-            for (int i = 0; i < pages.size(); i++) {
-                Path page = pages.get(i);
-                String ext = FileNaming.extension(page.getFileName().toString());
-                zip.putNextEntry(new ZipEntry(String.format("%0" + width + "d.%s", i + 1, ext)));
-                Files.copy(page, zip);
-                zip.closeEntry();
-            }
-            if (info != null) {
-                zip.putNextEntry(new ZipEntry("ComicInfo.xml"));
-                zip.write(comicInfoXml(info).getBytes(StandardCharsets.UTF_8));
-                zip.closeEntry();
-            }
+        try (OutputStream out = Files.newOutputStream(target)) {
+            write(out, pages, info);
         }
+    }
+
+    /** Variante para enviar o CBZ direto na resposta HTTP; não fecha {@code out}. */
+    public static void write(OutputStream out, List<Path> pages, ComicInfo info) throws IOException {
+        ZipOutputStream zip = new ZipOutputStream(out, StandardCharsets.UTF_8);
+        zip.setLevel(Deflater.BEST_SPEED);
+        int width = Math.max(3, String.valueOf(pages.size()).length());
+        for (int i = 0; i < pages.size(); i++) {
+            Path page = pages.get(i);
+            String ext = FileNaming.extension(page.getFileName().toString());
+            zip.putNextEntry(new ZipEntry(String.format("%0" + width + "d.%s", i + 1, ext)));
+            Files.copy(page, zip);
+            zip.closeEntry();
+        }
+        if (info != null) {
+            zip.putNextEntry(new ZipEntry("ComicInfo.xml"));
+            zip.write(comicInfoXml(info).getBytes(StandardCharsets.UTF_8));
+            zip.closeEntry();
+        }
+        zip.finish();
+        zip.flush();
     }
 
     /**
