@@ -24,6 +24,7 @@ import org.junit.jupiter.api.io.TempDir;
 import com.mangaverse.common.ApiException;
 import com.mangaverse.config.AppProperties;
 import com.mangaverse.reader.ReaderService;
+import com.mangaverse.storage.PathGuard;
 import com.mangaverse.storage.archive.PageData;
 import com.mangaverse.user.AppUser;
 
@@ -123,5 +124,24 @@ class TranslationServiceTest {
         service.redo(id, user);
         waitFor("READY");
         verify(client, times(6)).translate(any());
+    }
+
+    @Test void exportsTheReadyEditionAsCbzIntoAChosenAllowedFolderWithoutOverwriting() throws Exception {
+        when(reader.displayName(id)).thenReturn("Absolute Batman - #25");
+        Path library = Files.createDirectories(dir.resolve("library/HQs"));
+        var export = new TranslationExport(service, reader, new PathGuard(java.util.List.of(dir.resolve("library").toString())));
+        assertThatThrownBy(() -> export.save(id, library.toString())).isInstanceOf(ApiException.class);
+        service.start(id, user);
+        waitFor("READY");
+
+        Path first = Path.of(export.save(id, library.toString()).path());
+        Path second = Path.of(export.save(id, library.toString()).path());
+        assertThat(first.getFileName()).hasToString("Absolute Batman - #25 (PT-BR).cbz");
+        assertThat(second.getFileName()).hasToString("Absolute Batman - #25 (PT-BR) (2).cbz");
+        try (var zip = new java.util.zip.ZipFile(first.toFile())) {
+            assertThat(zip.stream().map(java.util.zip.ZipEntry::getName))
+                    .containsExactly("001.png", "002.png", "003.png", "ComicInfo.xml");
+        }
+        assertThatThrownBy(() -> export.save(id, dir.resolve("translations").toString())).isInstanceOf(ApiException.class);
     }
 }

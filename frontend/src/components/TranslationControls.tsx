@@ -1,9 +1,10 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { BookOpen, Languages, RotateCcw } from 'lucide-react'
+import { BookOpen, Download, FolderDown, Languages, RotateCcw } from 'lucide-react'
 import { useState } from 'react'
 import { Link } from 'react-router'
 import { api, errorMessage } from '../api/client'
 import type { TranslationJob } from '../api/types'
+import { DirectoryPicker } from './DirectoryPicker'
 import { Modal } from './Modal'
 import { useToast } from './Toast'
 import { ProgressBar, Spinner } from './ui'
@@ -41,6 +42,12 @@ function TranslationModal({ chapterId, label, onClose }: { chapterId: string; la
     onSuccess: (result) => { setConfirmRedo(false); qc.setQueryData(['translation', chapterId], result) },
     onError: (error) => toast.error(errorMessage(error)),
   })
+  const [picker, setPicker] = useState(false)
+  const save = useMutation({
+    mutationFn: async (directory: string) => (await api.post<{ path: string }>(`${base}/save`, { directory })).data,
+    onSuccess: (result) => toast.success(`CBZ salvo em ${result.path}`),
+    onError: (error) => toast.error(errorMessage(error)),
+  })
   const status = job.data?.status ?? 'NONE'
   const working = status === 'QUEUED' || status === 'PROCESSING'
   return (
@@ -58,6 +65,19 @@ function TranslationModal({ chapterId, label, onClose }: { chapterId: string; la
           </div>
         )}
         {working && <p className="text-xs text-zinc-400">Você pode fechar esta janela e acompanhar depois. O processamento continua em segundo plano.</p>}
+        {status === 'READY' && (
+          <div className="flex flex-wrap items-center gap-2 rounded-lg border border-ink-600 p-3">
+            <p className="w-full text-xs text-zinc-400">Leve a edição traduzida como arquivo CBZ, para guardar ou ler em outro aplicativo.</p>
+            <button className="btn-secondary" disabled={save.isPending} onClick={() => setPicker(true)}
+              title="Escolha uma pasta do servidor (biblioteca ou disco extra) para salvar o CBZ">
+              {save.isPending ? <Spinner className="h-4 w-4" /> : <FolderDown className="h-4 w-4" />} Salvar em pasta
+            </button>
+            <a className="btn-secondary" href={`/api${base}/download`} download
+              title="Baixa o CBZ pelo navegador (no celular, vai para os downloads do aparelho)">
+              <Download className="h-4 w-4" /> Baixar
+            </a>
+          </div>
+        )}
         {confirmRedo && <p role="alert" className="text-sm text-amber-300">As páginas já traduzidas desta edição serão apagadas e a tradução começa do zero. Clique em <strong>Confirmar</strong> para continuar.</p>}
         <div className="flex flex-wrap justify-end gap-2">
           <button className="btn-ghost" onClick={onClose}>Fechar</button>
@@ -80,6 +100,8 @@ function TranslationModal({ chapterId, label, onClose }: { chapterId: string; la
           )}
         </div>
       </div>
+      <DirectoryPicker open={picker} title="Salvar CBZ traduzido em" onClose={() => setPicker(false)}
+        onSelect={(path) => { setPicker(false); save.mutate(path) }} />
     </Modal>
   )
 }

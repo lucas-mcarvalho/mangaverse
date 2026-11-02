@@ -90,6 +90,12 @@ public class ReaderService {
     public record ProgressRequest(int page, int totalPages, Boolean completed) {
     }
 
+    /** "Título - rótulo" do capítulo, sem consultar a fonte; usado para nomear arquivos exportados. */
+    public String displayName(UUID chapterId) {
+        ChapterInfo info = loadInfo(chapterId);
+        return info.contentTitle() + " - " + info.label();
+    }
+
     public ReaderChapterView open(UUID chapterId, AppUser user) {
         ChapterInfo info = loadInfo(chapterId);
         int pageCount;
