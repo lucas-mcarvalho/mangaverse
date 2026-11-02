@@ -393,8 +393,9 @@ após 5 minutos sem páginas.
 
 #### Tradução na GPU NVIDIA
 
-Na CPU, o LLM leva de 15 a 25 s por página. Com uma GPU NVIDIA (6 GB de memória de vídeo bastam), o
-LLM e a detecção de texto rodam nela e a página volta para alguns segundos. Instale o NVIDIA
+Na CPU, o LLM deixa a página em cerca de 45 s. Com uma GPU NVIDIA (6 GB de memória de vídeo bastam), o
+LLM e a detecção de texto rodam nela: de 4 a 10 s por página numa RTX 3050 Laptop, usando uns 4,5 GB
+de memória de vídeo enquanto traduz. Instale o NVIDIA
 Container Toolkit uma vez no host (Arch Linux; em outras distribuições, veja a documentação da NVIDIA):
 
 ```bash

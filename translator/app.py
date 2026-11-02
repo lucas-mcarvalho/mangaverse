@@ -525,7 +525,7 @@ def interjections(english, portuguese):
 
 def comic_dashes(text):
     """Comic lettering marks interruptions with "--"; Argos reads mid-sentence ones as breaks."""
-    text = re.sub(r"^[\s\-—]*-{2,}\s*", "", text)
+    text = re.sub(r"^[\s.,\-—]*-{2,}\s*", "", text)
     text = re.sub(r"\s*-{2,}[\s\"”]*$", "...", text)
     return re.sub(r"\s*-{2,}\s*", " — ", text)
 

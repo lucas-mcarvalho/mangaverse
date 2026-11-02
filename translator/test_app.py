@@ -135,6 +135,7 @@ class TranslationPageTest(unittest.TestCase):
 
     def test_comic_dashes_do_not_split_sentences(self):
         self.assertEqual(app.comic_dashes("--Coming for you, Bib--"), "Coming for you, Bib...")
+        self.assertEqual(app.comic_dashes(". --You go to hell."), "You go to hell.")
         self.assertEqual(app.comic_dashes("sutures--and grafts--are"), "sutures — and grafts — are")
 
     def test_page_is_translated_by_the_llm_in_one_request_keeping_quotes(self):
