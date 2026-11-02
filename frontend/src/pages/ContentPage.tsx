@@ -9,6 +9,7 @@ import { api, errorMessage } from '../api/client'
 import type { Category, ChapterView, CheckResult, ContentView, EnqueueResult, LibraryStatus, SearchResponse, Settings } from '../api/types'
 import { ChapterControls, matchesChapter, useChapterControls } from '../components/ChapterControls'
 import { Modal } from '../components/Modal'
+import { TranslationControls } from '../components/TranslationControls'
 import { useToast } from '../components/Toast'
 import { Badge, Cover, EmptyState, ErrorState, PageLoader, Spinner, Toggle } from '../components/ui'
 import { groupByVolume } from '../lib/chapters'
@@ -51,6 +52,7 @@ export default function ContentPage() {
     qc.invalidateQueries({ queryKey: key })
     qc.invalidateQueries({ queryKey: ['library'] })
     qc.invalidateQueries({ queryKey: ['continue', contentId] })
+    qc.invalidateQueries({ queryKey: ['dashboard'] })
   }
   const onError = (e: unknown) => toast.error(errorMessage(e))
 
@@ -210,7 +212,7 @@ export default function ContentPage() {
             <button className="btn-secondary" disabled={check.isPending || !data.sources.length} onClick={() => check.mutate()}>
               {check.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Radar className="h-4 w-4" />} Verificar agora
             </button>
-            <button className="btn-ghost text-red-300" onClick={() => confirm('Remover da biblioteca? Os arquivos no disco serão mantidos.') && removeFromLibrary.mutate()}>
+            <button className="btn-ghost text-red-300" disabled={removeFromLibrary.isPending} onClick={() => removeFromLibrary.mutate()}>
               <Trash2 className="h-4 w-4" /> Remover da biblioteca
             </button>
           </div>
@@ -337,6 +339,9 @@ export default function ContentPage() {
                   {c.downloadStatus && <Badge tone={c.downloadStatus === 'FAILED' ? 'red' : 'accent'}>{c.downloadStatus === 'DOWNLOADING' && <Spinner className="h-3 w-3" />}{downloadStatusLabel[c.downloadStatus]}</Badge>}
                   {c.downloadable && !c.downloaded && !c.downloadStatus && (
                     <button className="btn-ghost p-1.5" title="Baixar" onClick={() => enqueue.mutate([c.id])}><Download className="h-4 w-4" /></button>
+                  )}
+                  {(c.readable || c.downloaded) && (c.language?.startsWith('en') || c.providerCode === 'local' || !c.language) && (
+                    <TranslationControls chapterId={c.id} label={c.label} />
                   )}
                   {c.readable ? (
                     <Link to={`/ler/${c.id}`} className="btn-secondary px-2.5 py-1.5"><BookOpen className="h-4 w-4" /> Ler</Link>

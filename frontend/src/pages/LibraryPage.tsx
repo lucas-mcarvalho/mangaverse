@@ -5,6 +5,7 @@ import { useSearchParams } from 'react-router'
 import { api, errorMessage } from '../api/client'
 import type { Category, ContentType, ImportResult, LibraryItem, LibraryStatus } from '../api/types'
 import { DirectoryPicker } from '../components/DirectoryPicker'
+import { RemoveFromLibraryButton } from '../components/RemoveFromLibraryButton'
 import { Modal } from '../components/Modal'
 import { CardGrid, CardGridSkeleton, TitleCard } from '../components/TitleCard'
 import { useToast } from '../components/Toast'
@@ -83,7 +84,8 @@ export default function LibraryPage() {
       ) : (
         <CardGrid>
           {items.map((i) => (
-            <TitleCard key={i.entryId} to={`/conteudo/${i.contentId}`} title={i.title} coverUrl={i.coverUrl} type={i.type} progress={i.progressPercent}
+            <div key={i.entryId}>
+            <TitleCard to={`/conteudo/${i.contentId}`} title={i.title} coverUrl={i.coverUrl} type={i.type} progress={i.progressPercent}
               badges={<>
                 {i.favorite && <Badge tone="red"><Heart className="h-3 w-3 fill-current" /></Badge>}
                 {i.monitored && <Badge tone="green"><Radar className="h-3 w-3" /></Badge>}
@@ -93,6 +95,8 @@ export default function LibraryPage() {
                 <span>{statusLabel[i.status]}</span>
                 <span>{i.readChapters}/{i.totalChapters}{i.activeDownloads > 0 ? ` · ↓${i.activeDownloads}` : ''}</span>
               </div>} />
+            <RemoveFromLibraryButton entryId={i.entryId} contentId={i.contentId} title={i.title} />
+            </div>
           ))}
         </CardGrid>
       )}

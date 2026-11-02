@@ -7,6 +7,7 @@ import type { ExtensionView, ProviderView, StoreView, SuwayomiStatus } from '../
 import { useToast } from '../components/Toast'
 import { Badge, Cover, EmptyState, ErrorState, PageLoader, SectionTitle, Spinner, Toggle } from '../components/ui'
 import { cx, languageLabel, timeAgo } from '../lib/format'
+import { BrazilianComicsSources } from '../components/BrazilianComicsSources'
 
 const KEIYOUSHI = 'https://raw.githubusercontent.com/keiyoushi/extensions/repo/index.min.json'
 
@@ -85,6 +86,8 @@ export default function SourcesPage() {
           ))}
         </div>
       </section>
+
+      <BrazilianComicsSources providers={sources} online={suwayomi.data?.online === true} />
 
       <section className="space-y-4">
         <SectionTitle action={

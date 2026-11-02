@@ -343,6 +343,78 @@ Atalhos do leitor: `←`/`→` navegam (respeitando a direção), `F` tela cheia
 `N`/`P` próximo/anterior capítulo, `Esc` volta. No celular: deslize para os lados ou toque nas
 laterais; toque no centro para mostrar/ocultar os controles.
 
+### Comunidades de HQs em PT-BR
+
+Em **Fontes e extensões → HQs em português · comunidades de fãs**, o cartão **HQ Now!**
+permite instalar sua extensão pelo Keiyoushi, sincronizar e habilitar a fonte com o tipo **HQ**
+e prioridade 15. Se já estiver habilitada como HQ, o botão abre a pesquisa filtrada por essa fonte.
+A instalação exige o Suwayomi conectado; a leitura depende da disponibilidade do site.
+
+O cartão **Só Quadrinhos** abre https://site.soquadrinhos.com/ em outra aba. É um acesso
+externo: não há integração de pesquisa, leitura ou download desta comunidade no MangaVerse.
+Arquivos obtidos separadamente podem ser adicionados em **Minha Biblioteca → Importar arquivos locais**.
+
+### Preparar uma edição em português antes de ler
+
+Na lista de edições de um título, clique em **Traduzir → Preparar tradução** ao lado de uma
+edição em inglês. Arquivos locais com idioma desconhecido também oferecem essa opção, assumindo
+texto em inglês. O leitor também possui um botão **Traduzir**. O processamento continua no servidor
+quando a janela ou o navegador é fechado; o progresso mostra quantas páginas estão prontas.
+Ao terminar, use **Ler em português** e alterne entre **Português / Original** no leitor.
+Para refazer uma edição já traduzida (por exemplo, depois de uma atualização do tradutor), abra
+**Traduzir** e use **Traduzir novamente → Confirmar**: as páginas traduzidas dessa edição são
+apagadas e a preparação recomeça do zero; o arquivo original não é alterado.
+
+O serviço `translator` localiza o texto com o detector neural CRAFT (EasyOCR), agrupa as linhas por
+balão, lê cada balão ampliado com Tesseract e traduz com Argos Translate, sem chave de API e sem enviar
+imagens a serviços externos. Na primeira inicialização, ele baixa o detector e o modelo direto `en → pb`
+(português brasileiro, código usado pelo Argos) e os mantém no volume `translation_models`. A tradução
+é automática e pode errar nomes e contexto dos diálogos. O download inicial exige internet; com os
+modelos instalados, o processamento é local em CPU (cerca de 6 a 8 s por página com 4 núcleos).
+Em **Configurações → Tradução**, escolha quantos núcleos da CPU o tradutor usa: mais núcleos
+aceleram a detecção do texto, mas deixam o computador mais ocupado durante a tradução. A mudança
+vale a partir da próxima página, sem reiniciar o serviço.
+Os modelos ocupam de 1 a 4 GB de RAM enquanto traduzem e ficam num processo separado, que é
+encerrado após `TRANSLATOR_IDLE_MINUTES` (padrão: 5) sem páginas; parado, o serviço usa poucos MB
+e nenhuma CPU. A próxima página recarrega os modelos automaticamente em alguns segundos.
+
+```bash
+docker compose up -d --build translator backend frontend
+docker compose logs -f translator
+```
+
+Espere a mensagem **Tradutor local pronto** antes de preparar a primeira edição. O download do
+modelo e o primeiro carregamento podem demorar. Se iniciar antes disso, a tarefa pode falhar com
+"Tradutor local indisponível"; depois de o serviço ficar pronto, clique em **Retomar tradução**.
+Para usar o backend fora do Compose, publique a porta do worker apenas em localhost e configure
+`MANGAVERSE_TRANSLATION_URL=http://localhost:8091`.
+
+Uma edição é processada por vez, com até duas páginas em paralelo para limitar memória e carga
+na fonte. Páginas e progresso são salvos em `backend_data:/data/translations/` (ou no `data-dir`
+configurado). Falhas e cancelamentos preservam as páginas concluídas; **Retomar tradução** processa
+somente as restantes. Tarefas que estavam na fila ou em processamento são retomadas quando o
+backend reinicia. O cancelamento impede novas páginas e a publicação da versão pronta; uma chamada
+já em andamento pode levar algum tempo para encerrar. Limites: 2000 páginas por edição, 25 MB e
+30 milhões de pixels por imagem. A versão em português só é liberada depois de toda a edição pronta.
+
+A composição apaga o texto com a própria cor do balão ou da legenda, sem tocar no contorno, e
+reescreve a tradução com fonte de quadrinhos (Comic Neue), com as linhas acompanhando o formato do
+balão. Letras em caixa-alta são traduzidas em caixa normal (o tradutor erra muito com caixa-alta) e
+devolvidas em caixa-alta; nomes próprios são mantidos com ajuda de um dicionário de inglês, que também
+corrige trocas comuns do OCR. Texto desenhado direto sobre a arte (onomatopeias, logotipos, placas)
+é mantido como está, pois não há fundo liso para repintar. Não reconstrói desenhos nem letras
+artísticas. Textos não reconhecidos podem permanecer em inglês; OCR, nomes próprios e traduções
+automáticas podem conter erros. Edições preparadas por uma versão anterior do tradutor são refeitas
+ao preparar a tradução novamente. O arquivo original e o progresso de leitura são preservados. A velocidade depende do hardware,
+da resolução e da disponibilidade das páginas na fonte; não há tempo fixo prometido.
+
+### Remover títulos em leitura
+
+Use **Remover** no cartão de **Minha Biblioteca** ou de **Continuar lendo**. A ação remove a entrada
+da biblioteca e o título sai de **Continuar lendo**, preservando arquivos baixados e histórico.
+Também há **Remover da biblioteca** na página do título. Abrir e ler o título novamente pode
+adicioná-lo à biblioteca, conforme o comportamento normal de salvamento de progresso.
+
 ---
 
 ## Integrações e limites das fontes

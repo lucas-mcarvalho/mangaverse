@@ -46,7 +46,7 @@ public class DashboardController {
         this.chapters = chapters;
     }
 
-    public record ContinueItem(String contentId, String title, String coverUrl, String chapterId, String chapterLabel,
+    public record ContinueItem(String entryId, String contentId, String title, String coverUrl, String chapterId, String chapterLabel,
                                int page, int totalPages, boolean completed, String type) {
     }
 
@@ -70,14 +70,16 @@ public class DashboardController {
         AppUser user = currentUser.get();
         List<LibraryViews.LibraryItem> all = library.list(user, new LibraryService.Filter(null, null, null, null, null, null));
 
+        Map<String, String> libraryEntries = new LinkedHashMap<>();
+        all.forEach(item -> libraryEntries.put(item.contentId(), item.entryId()));
         Map<UUID, ContinueItem> continueMap = new LinkedHashMap<>();
         for (ReadingProgress p : progress.findRecent(user.getId(), PageRequest.of(0, 60))) {
             UUID contentId = p.getContent().getId();
-            if (continueMap.containsKey(contentId) || continueMap.size() >= 12) {
+            if (!libraryEntries.containsKey(contentId.toString()) || continueMap.containsKey(contentId) || continueMap.size() >= 12) {
                 continue;
             }
             var content = p.getContent();
-            continueMap.put(contentId, new ContinueItem(contentId.toString(), content.getTitle(),
+            continueMap.put(contentId, new ContinueItem(libraryEntries.get(contentId.toString()), contentId.toString(), content.getTitle(),
                     Covers.resolve(content.getCoverUrl(), contentId), p.getChapter().getId().toString(),
                     p.getChapter().displayLabel(content.getType().isComic()), p.getPage(), p.getTotalPages(),
                     p.isCompleted(), content.getType().name()));

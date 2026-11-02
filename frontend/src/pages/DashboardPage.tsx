@@ -5,6 +5,7 @@ import { Link } from 'react-router'
 import { api, errorMessage } from '../api/client'
 import type { Dashboard } from '../api/types'
 import { CardGridSkeleton, HorizontalRow, TitleCard } from '../components/TitleCard'
+import { RemoveFromLibraryButton } from '../components/RemoveFromLibraryButton'
 import { Cover, EmptyState, ErrorState, ProgressBar, SectionTitle } from '../components/ui'
 import { downloadStatusLabel, timeAgo } from '../lib/format'
 
@@ -50,7 +51,8 @@ export default function DashboardPage() {
           <SectionTitle>Continuar lendo</SectionTitle>
           <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
             {data.continueReading.slice(0, 6).map((c) => (
-              <Link key={c.contentId} to={`/ler/${c.chapterId}`} className="card group flex gap-4 p-3 transition-colors hover:border-accent-500/40">
+              <div key={c.contentId} className="card p-3">
+              <Link to={`/ler/${c.chapterId}`} className="group flex gap-4 transition-colors hover:border-accent-500/40">
                 <Cover src={c.coverUrl} alt={c.title} className="h-24 w-16 shrink-0 rounded-lg" />
                 <div className="flex min-w-0 flex-1 flex-col justify-center gap-1.5">
                   <h3 className="truncate font-medium text-zinc-100 group-hover:text-white">{c.title}</h3>
@@ -58,6 +60,8 @@ export default function DashboardPage() {
                   <ProgressBar value={c.completed ? 100 : c.totalPages ? ((c.page + 1) / c.totalPages) * 100 : 0} tone={c.completed ? 'green' : 'accent'} />
                 </div>
               </Link>
+              <div className="mt-2 flex justify-end"><RemoveFromLibraryButton entryId={c.entryId} contentId={c.contentId} title={c.title} /></div>
+              </div>
             ))}
           </div>
         </section>

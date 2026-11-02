@@ -42,6 +42,24 @@ services:
     environment:
       TZ: ${TZ:-America/Sao_Paulo}
 
+  translator:
+    build: ./translator
+    restart: unless-stopped
+    volumes:
+      - translation_models:/models
+    # Serviço interno: imagens não são enviadas a APIs externas.
+    environment:
+      # Threads de CPU do detector de texto; reduza em máquinas com poucos núcleos.
+      OMP_NUM_THREADS: "4"
+      # Minutos sem páginas até descarregar os modelos e devolver a memória (1 a 4 GB) ao sistema.
+      TRANSLATOR_IDLE_MINUTES: "5"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8091/health', timeout=3)"]
+      interval: 10s
+      timeout: 5s
+      start_period: 120s
+      retries: 30
+
   backend:
     build: ./backend
     restart: unless-stopped
@@ -65,6 +83,7 @@ services:
       COMICVINE_API_KEY: ${COMICVINE_API_KEY:-}
       MANGAVERSE_USER_AGENT: ${MANGAVERSE_USER_AGENT:-MangaVerse/0.1 (self-hosted)}
       LOG_FORMAT: ${LOG_FORMAT:-ecs}
+      MANGAVERSE_TRANSLATION_URL: http://translator:8091
       TZ: ${TZ:-America/Sao_Paulo}
     volumes:
       # Biblioteca principal no host (downloads e importação)
@@ -94,3 +113,4 @@ volumes:
   postgres_data:
   suwayomi_data:
   backend_data:
+  translation_models:
