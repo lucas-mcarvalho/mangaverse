@@ -32,8 +32,8 @@ import tools.jackson.databind.JsonNode;
 public class SuwayomiClient {
 
     public static final String CODE = "suwayomi";
-    // O serviço auxiliar do Suwayomi pode levar até 60s para consultar uma fonte.
-    public static final Duration REQUEST_TIMEOUT = Duration.ofSeconds(90);
+    // O Byparr do Suwayomi pode levar até 100 s para passar pelo Cloudflare.
+    public static final Duration REQUEST_TIMEOUT = Duration.ofSeconds(115);
 
     public static final String Q_ABOUT = "query { aboutServer { name version buildType } }";
 

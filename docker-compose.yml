@@ -25,7 +25,8 @@ services:
       TZ: ${TZ:-America/Sao_Paulo}
       FLARESOLVERR_ENABLED: ${SUWAYOMI_FLARESOLVERR_ENABLED:-true}
       FLARESOLVERR_URL: http://byparr:8191
-      FLARESOLVERR_TIMEOUT: "60"
+      # Desafios do Cloudflare às vezes levam mais de 60 s para o Byparr resolver.
+      FLARESOLVERR_TIMEOUT: "100"
       FLARESOLVERR_RESPONSE_AS_FALLBACK: "true"
     depends_on:
       - byparr
