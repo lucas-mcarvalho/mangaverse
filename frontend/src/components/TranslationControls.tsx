@@ -51,6 +51,7 @@ function TranslationModal({ chapterId, label, onClose }: { chapterId: string; la
   const status = job.data?.status ?? 'NONE'
   const working = status === 'QUEUED' || status === 'PROCESSING'
   return (
+    <>
     <Modal open onClose={onClose} title={`Traduzir ${label}`}>
       <div className="space-y-4">
         <p className="text-sm text-zinc-300">Prepare esta edição inteira de inglês para português antes de ler. A versão traduzida fica salva e o original é preservado.</p>
@@ -100,8 +101,9 @@ function TranslationModal({ chapterId, label, onClose }: { chapterId: string; la
           )}
         </div>
       </div>
-      <DirectoryPicker open={picker} title="Salvar CBZ traduzido em" onClose={() => setPicker(false)}
-        onSelect={(path) => { setPicker(false); save.mutate(path) }} />
     </Modal>
+    <DirectoryPicker open={picker} title="Salvar CBZ traduzido em" onClose={() => setPicker(false)}
+      onSelect={(path) => { setPicker(false); save.mutate(path) }} />
+    </>
   )
 }
