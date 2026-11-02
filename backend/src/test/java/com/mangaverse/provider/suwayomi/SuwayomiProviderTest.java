@@ -132,6 +132,23 @@ class SuwayomiProviderTest {
     }
 
     @Test
+    void cloudflareChallengeIsRetriedWhileByparrSolvesItButDisabledBypassIsNot() {
+        String blocked = "{\"errors\":[{\"message\":\"java.io.IOException: timeout\\n\\tat eu.kanade.tachiyomi.network.interceptor.CloudflareInterceptor.intercept\"}],\"data\":null}";
+        int[] calls = {0};
+        MockHttp http = new MockHttp(req -> ++calls[0] < 3 ? Reply.json(blocked) : Reply.json("{\"data\":{\"ok\":true}}"));
+        SuwayomiClient client = client(http);
+        client.cloudflareRetryDelay = java.time.Duration.ZERO;
+        assertThat(client.execute(SuwayomiClient.Q_SOURCES, Map.of()).path("ok").asBoolean()).isTrue();
+        assertThat(calls[0]).isEqualTo(3);
+
+        MockHttp disabled = new MockHttp(req -> Reply.json("{\"errors\":[{\"message\":\"Cloudflare bypass currently disabled\"}],\"data\":null}"));
+        SuwayomiClient off = client(disabled);
+        off.cloudflareRetryDelay = java.time.Duration.ZERO;
+        assertThatThrownBy(() -> off.execute(SuwayomiClient.Q_SOURCES, Map.of())).hasMessageContaining("desativada");
+        assertThat(disabled.requests).hasSize(1);
+    }
+
+    @Test
     void errorMessagesAreSummarizedWithoutStackTraces() {
         String trace = "Exception while fetching data (/fetchSourceManga) : Timeout\n\njava.io.IOException: Timeout\n\tat x.y(Unknown Source)";
         assertThat(SuwayomiClient.friendlyError(trace)).isEqualTo("Timeout");
