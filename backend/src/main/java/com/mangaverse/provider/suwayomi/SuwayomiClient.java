@@ -38,9 +38,10 @@ public class SuwayomiClient {
     public static final Duration REQUEST_TIMEOUT = Duration.ofSeconds(165);
     /**
      * A extensão da fonte desiste do desafio do Cloudflare em 20–30 s, mas o Byparr continua e guarda o
-     * cookie: novas tentativas durante este prazo costumam passar assim que ele termina.
+     * cookie: novas tentativas durante este prazo costumam passar assim que ele termina. O prazo cabe
+     * no limite de 180 s do navegador e permite uma nova tentativa depois de um desafio de 2 min.
      */
-    static final Duration CLOUDFLARE_RETRY_BUDGET = Duration.ofSeconds(120);
+    static final Duration CLOUDFLARE_RETRY_BUDGET = Duration.ofSeconds(160);
     private static final Logger log = LoggerFactory.getLogger(SuwayomiClient.class);
 
     public static final String Q_ABOUT = "query { aboutServer { name version buildType } }";
@@ -89,7 +90,7 @@ public class SuwayomiClient {
     private final HttpSupport http;
     private final WebClient client;
     private final RateLimiter limiter;
-    Duration cloudflareRetryDelay = Duration.ofSeconds(15);
+    Duration cloudflareRetryDelay = Duration.ofSeconds(10);
 
     public SuwayomiClient(AppProperties.Suwayomi config, HttpSupport http) {
         this(config, http, http.client(config.baseUrl(), REQUEST_TIMEOUT));
