@@ -9,6 +9,8 @@ import java.util.Map;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
@@ -34,6 +36,12 @@ public class SuwayomiClient {
     public static final String CODE = "suwayomi";
     // O Byparr do Suwayomi pode levar até 150 s para passar pelo Cloudflare.
     public static final Duration REQUEST_TIMEOUT = Duration.ofSeconds(165);
+    /**
+     * A extensão da fonte desiste do desafio do Cloudflare em 20–30 s, mas o Byparr continua e guarda o
+     * cookie: novas tentativas durante este prazo costumam passar assim que ele termina.
+     */
+    static final Duration CLOUDFLARE_RETRY_BUDGET = Duration.ofSeconds(120);
+    private static final Logger log = LoggerFactory.getLogger(SuwayomiClient.class);
 
     public static final String Q_ABOUT = "query { aboutServer { name version buildType } }";
 
@@ -81,6 +89,7 @@ public class SuwayomiClient {
     private final HttpSupport http;
     private final WebClient client;
     private final RateLimiter limiter;
+    Duration cloudflareRetryDelay = Duration.ofSeconds(15);
 
     public SuwayomiClient(AppProperties.Suwayomi config, HttpSupport http) {
         this(config, http, http.client(config.baseUrl(), REQUEST_TIMEOUT));
@@ -111,6 +120,34 @@ public class SuwayomiClient {
 
     /** Executa uma operação GraphQL. Respostas parciais são aceitas quando {@code allowPartial} é verdadeiro. */
     public JsonNode execute(String query, Map<String, Object> variables, boolean allowPartial) {
+        long deadline = System.nanoTime() + CLOUDFLARE_RETRY_BUDGET.toNanos();
+        for (int attempt = 1; ; attempt++) {
+            try {
+                return executeOnce(query, variables, allowPartial);
+            } catch (CloudflareChallenge e) {
+                if (System.nanoTime() + cloudflareRetryDelay.toNanos() >= deadline) {
+                    throw e;
+                }
+                log.info("Cloudflare ainda em resolução pelo Byparr; nova tentativa {} em {} s", attempt + 1,
+                        cloudflareRetryDelay.toSeconds());
+                try {
+                    Thread.sleep(cloudflareRetryDelay);
+                } catch (InterruptedException interrupted) {
+                    Thread.currentThread().interrupt();
+                    throw e;
+                }
+            }
+        }
+    }
+
+    /** Desafio do Cloudflare que falhou com a integração ativa; vale tentar de novo. */
+    private static final class CloudflareChallenge extends ProviderException {
+        CloudflareChallenge(String message) {
+            super(CODE, message);
+        }
+    }
+
+    private JsonNode executeOnce(String query, Map<String, Object> variables, boolean allowPartial) {
         if (!config.enabled()) {
             throw new ProviderException(CODE, "Integração com Suwayomi desabilitada.");
         }
@@ -131,9 +168,16 @@ public class SuwayomiClient {
         JsonNode data = body.path("data");
         if (errors.isArray() && !errors.isEmpty()) {
             List<String> messages = new ArrayList<>();
-            errors.forEach(e -> messages.add(friendlyError(Json.text(e, "message"))));
+            boolean challenge = false;
+            for (JsonNode e : errors) {
+                String raw = Json.text(e, "message");
+                String lower = raw == null ? "" : raw.toLowerCase(java.util.Locale.ROOT);
+                challenge |= lower.contains("cloudflare") && !lower.contains("bypass currently disabled");
+                messages.add(friendlyError(raw));
+            }
             if (!allowPartial || data.isMissingNode() || data.isNull()) {
-                throw new ProviderException(CODE, "Erro do Suwayomi: " + String.join("; ", messages));
+                String message = "Erro do Suwayomi: " + String.join("; ", messages);
+                throw challenge ? new CloudflareChallenge(message) : new ProviderException(CODE, message);
             }
         }
         return data;
