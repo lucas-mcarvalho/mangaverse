@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { FolderOpen, Radar, Save } from 'lucide-react'
+import { Cpu, FolderOpen, Radar, Save } from 'lucide-react'
 import { useEffect, useState, type ReactNode } from 'react'
 import { api, errorMessage } from '../api/client'
 import type { MonitorStatus, Settings } from '../api/types'
@@ -33,6 +33,7 @@ export default function SettingsPage() {
       maxConcurrentDownloads: form!.maxConcurrentDownloads, autoDownloadEnabled: form!.autoDownloadEnabled,
       monitorEnabled: form!.monitorEnabled, monitorIntervalMinutes: form!.monitorIntervalMinutes,
       languages: languages.split(',').map((l) => l.trim()).filter(Boolean), contentRatings: form!.contentRatings,
+      translationThreads: form!.translationThreads,
     })).data,
     onSuccess: (s) => { qc.setQueryData(['settings'], s); qc.invalidateQueries({ queryKey: ['monitor'] }); toast.success('Configurações salvas.') },
     onError: (e) => toast.error(errorMessage(e)),
@@ -51,7 +52,7 @@ export default function SettingsPage() {
       <div className="flex items-end justify-between gap-4">
         <div>
           <h1 className="text-2xl font-bold text-white">Configurações</h1>
-          <p className="text-sm text-zinc-400">Armazenamento, downloads, monitoramento e preferências de conteúdo.</p>
+          <p className="text-sm text-zinc-400">Armazenamento, downloads, monitoramento, tradução e preferências de conteúdo.</p>
         </div>
         <button className="btn-primary" disabled={save.isPending} onClick={() => save.mutate()}>
           {save.isPending ? <Spinner className="h-4 w-4 text-white" /> : <Save className="h-4 w-4" />} Salvar
@@ -100,6 +101,22 @@ export default function SettingsPage() {
             })}
           </div>
         </div>
+      </Section>
+
+      <Section title="Tradução" description="Mais núcleos deixam cada página mais rápida, mas o computador fica mais ocupado enquanto a tradução roda. Vale a partir da próxima página processada.">
+        <label className="block space-y-2 text-sm">
+          <span className="flex items-center justify-between gap-4">
+            <span className="flex items-center gap-2"><Cpu className="h-4 w-4 text-zinc-400" /> Núcleos da CPU para o tradutor</span>
+            <span className="font-mono text-zinc-200">{form.translationThreads} de {form.availableCpus}</span>
+          </span>
+          <input type="range" min={1} max={form.availableCpus} step={1} className="w-full accent-accent-500" value={form.translationThreads}
+            onChange={(e) => set({ translationThreads: Number(e.target.value) })} />
+          <span className="text-xs text-zinc-500">
+            {form.translationThreads >= form.availableCpus ? 'Todos os núcleos: tradução mais rápida, mas outros programas ficam lentos durante o processamento.'
+              : form.translationThreads > form.availableCpus / 2 ? 'Mais da metade dos núcleos: rápido, com o computador ainda utilizável.'
+                : 'Uso moderado: deixa a maior parte do processador livre para outras tarefas.'}
+          </span>
+        </label>
       </Section>
 
       <Section title="Integrações">

@@ -6,7 +6,7 @@ automático de novos capítulos.
 
 - **Backend:** Java 21, Spring Boot 4.1 (Web MVC, Data JPA, Security, Validation, Cache, Scheduling), WebClient, Flyway, PostgreSQL
 - **Frontend:** React 19 + TypeScript, Vite, Tailwind CSS 4, React Router, TanStack Query, Axios, Lucide
-- **Infra:** Docker Compose com PostgreSQL, backend, frontend (nginx) e Suwayomi Server
+- **Infra:** Docker Compose com PostgreSQL, backend, frontend (nginx), Suwayomi Server e Byparr
 
 ![Dashboard do MangaVerse](docs/screenshots/dashboard.jpg)
 
@@ -323,7 +323,11 @@ idiomas preferidos (padrão `pt-br, en`) e classificação de conteúdo do Manga
    Em cada fonte dá para definir o **tipo** (Automático, Mangá, Manhwa, Manhua ou HQ). Extensões de HQ conhecidas,
    como o HQ Now!, já entram como HQ: os títulos aparecem no filtro "HQ", usam "Edição" e são baixados em `HQs/`.
 3. **Pesquisa global**: digite, por exemplo, *Solo Leveling* ou *Batman Absolute*. Cada resultado mostra
-   de quais fontes veio; resultados com tradução pt-BR aparecem primeiro.
+   de quais fontes veio; resultados com tradução pt-BR aparecem primeiro. No seletor **Fonte**, escolha
+   uma fonte habilitada para pesquisar apenas nela; também há um atalho de pesquisa na lista de fontes instaladas.
+   A seleção é aplicada antes do limite de fontes do Suwayomi, permitindo consultar uma fonte que ficaria
+   de fora da pesquisa global por prioridade. Para Read Comics Online e ComicHubFree, procure as extensões
+   no idioma **Inglês**, instale/atualize e confira se a fonte está habilitada e com o tipo **HQ**.
 4. Abra um título → **Adicionar à biblioteca** (ou *Adicionar e monitorar*).
 5. Na página do título: **Ler**, baixar capítulos individuais, por seleção, por volume ou *Baixar faltantes*.
 6. Ative **Monitorar novas edições** e, se quiser, **Baixar automaticamente** (exige também a opção
@@ -338,6 +342,81 @@ idiomas preferidos (padrão `pt-br, en`) e classificação de conteúdo do Manga
 Atalhos do leitor: `←`/`→` navegam (respeitando a direção), `F` tela cheia, `+`/`−`/`0` zoom,
 `N`/`P` próximo/anterior capítulo, `Esc` volta. No celular: deslize para os lados ou toque nas
 laterais; toque no centro para mostrar/ocultar os controles.
+
+### Comunidades de HQs em PT-BR
+
+Em **Fontes e extensões → HQs em português · comunidades de fãs**, o cartão **HQ Now!**
+permite instalar sua extensão pelo Keiyoushi, sincronizar e habilitar a fonte com o tipo **HQ**
+e prioridade 15. Se já estiver habilitada como HQ, o botão abre a pesquisa filtrada por essa fonte.
+A instalação exige o Suwayomi conectado; a leitura depende da disponibilidade do site.
+
+O cartão **Só Quadrinhos** abre https://site.soquadrinhos.com/ em outra aba. É um acesso
+externo: não há integração de pesquisa, leitura ou download desta comunidade no MangaVerse.
+Arquivos obtidos separadamente podem ser adicionados em **Minha Biblioteca → Importar arquivos locais**.
+
+### Preparar uma edição em português antes de ler
+
+Na lista de edições de um título, clique em **Traduzir → Preparar tradução** ao lado de uma
+edição em inglês. Arquivos locais com idioma desconhecido também oferecem essa opção, assumindo
+texto em inglês. O leitor também possui um botão **Traduzir**. O processamento continua no servidor
+quando a janela ou o navegador é fechado; o progresso mostra quantas páginas estão prontas.
+Ao terminar, use **Ler em português** e alterne entre **Português / Original** no leitor.
+Para refazer uma edição já traduzida (por exemplo, depois de uma atualização do tradutor), abra
+**Traduzir** e use **Traduzir novamente → Confirmar**: as páginas traduzidas dessa edição são
+apagadas e a preparação recomeça do zero; o arquivo original não é alterado.
+Com a edição pronta, a mesma janela oferece **Salvar em pasta** (escolha uma pasta permitida do
+servidor, como a biblioteca ou o disco extra; o CBZ `Título - Edição (PT-BR).cbz` nunca sobrescreve um
+arquivo existente) e **Baixar** (o navegador baixa o CBZ; no celular, vai para os downloads do aparelho).
+
+O serviço `translator` localiza o texto com o detector neural CRAFT (EasyOCR), agrupa as linhas por
+balão, lê cada balão ampliado com Tesseract e traduz com Argos Translate, sem chave de API e sem enviar
+imagens a serviços externos. Na primeira inicialização, ele baixa o detector e o modelo direto `en → pb`
+(português brasileiro, código usado pelo Argos) e os mantém no volume `translation_models`. A tradução
+é automática e pode errar nomes e contexto dos diálogos. O download inicial exige internet; com os
+modelos instalados, o processamento é local em CPU (cerca de 6 a 8 s por página com 4 núcleos).
+Em **Configurações → Tradução**, escolha quantos núcleos da CPU o tradutor usa: mais núcleos
+aceleram a detecção do texto, mas deixam o computador mais ocupado durante a tradução. A mudança
+vale a partir da próxima página, sem reiniciar o serviço.
+Os modelos ocupam de 1 a 4 GB de RAM enquanto traduzem e ficam num processo separado, que é
+encerrado após `TRANSLATOR_IDLE_MINUTES` (padrão: 5) sem páginas; parado, o serviço usa poucos MB
+e nenhuma CPU. A próxima página recarrega os modelos automaticamente em alguns segundos.
+
+```bash
+docker compose up -d --build translator backend frontend
+docker compose logs -f translator
+```
+
+Espere a mensagem **Tradutor local pronto** antes de preparar a primeira edição. O download do
+modelo e o primeiro carregamento podem demorar. Se iniciar antes disso, a tarefa pode falhar com
+"Tradutor local indisponível"; depois de o serviço ficar pronto, clique em **Retomar tradução**.
+Para usar o backend fora do Compose, publique a porta do worker apenas em localhost e configure
+`MANGAVERSE_TRANSLATION_URL=http://localhost:8091`.
+
+Uma edição é processada por vez, com até duas páginas em paralelo para limitar memória e carga
+na fonte. Páginas e progresso são salvos em `backend_data:/data/translations/` (ou no `data-dir`
+configurado). Falhas e cancelamentos preservam as páginas concluídas; **Retomar tradução** processa
+somente as restantes. Tarefas que estavam na fila ou em processamento são retomadas quando o
+backend reinicia. O cancelamento impede novas páginas e a publicação da versão pronta; uma chamada
+já em andamento pode levar algum tempo para encerrar. Limites: 2000 páginas por edição, 25 MB e
+30 milhões de pixels por imagem. A versão em português só é liberada depois de toda a edição pronta.
+
+A composição apaga o texto com a própria cor do balão ou da legenda, sem tocar no contorno, e
+reescreve a tradução com fonte de quadrinhos (Comic Neue), com as linhas acompanhando o formato do
+balão. Letras em caixa-alta são traduzidas em caixa normal (o tradutor erra muito com caixa-alta) e
+devolvidas em caixa-alta; nomes próprios são mantidos com ajuda de um dicionário de inglês, que também
+corrige trocas comuns do OCR. Texto desenhado direto sobre a arte (onomatopeias, logotipos, placas)
+é mantido como está, pois não há fundo liso para repintar. Não reconstrói desenhos nem letras
+artísticas. Textos não reconhecidos podem permanecer em inglês; OCR, nomes próprios e traduções
+automáticas podem conter erros. Edições preparadas por uma versão anterior do tradutor são refeitas
+ao preparar a tradução novamente. O arquivo original e o progresso de leitura são preservados. A velocidade depende do hardware,
+da resolução e da disponibilidade das páginas na fonte; não há tempo fixo prometido.
+
+### Remover títulos em leitura
+
+Use **Remover** no cartão de **Minha Biblioteca** ou de **Continuar lendo**. A ação remove a entrada
+da biblioteca e o título sai de **Continuar lendo**, preservando arquivos baixados e histórico.
+Também há **Remover da biblioteca** na página do título. Abrir e ler o título novamente pode
+adicioná-lo à biblioteca, conforme o comportamento normal de salvamento de progresso.
 
 ---
 
@@ -361,6 +440,42 @@ Endpoints usados (conferidos ao vivo): `GET /manga`, `GET /manga/{id}`, `GET /ma
 - A classificação de conteúdo padrão é *safe* + *suggestive* (ajustável em Configurações).
 
 ### Suwayomi + Keiyoushi
+
+#### ComicHubFree e Read Comics Online (en): Cloudflare
+
+O Compose inclui **Byparr**, serviço auxiliar compatível com FlareSolverr usado pelo Suwayomi
+quando uma fonte apresenta um desafio Cloudflare. Ele fica na rede interna do Docker, sem porta
+publicada no host. A integração vem habilitada; para desligá-la, defina
+`SUWAYOMI_FLARESOLVERR_ENABLED=false` no `.env`.
+
+Para aplicar a configuração a uma instalação existente, na pasta do projeto:
+
+```bash
+docker compose up -d byparr suwayomi
+docker compose up -d --build backend frontend
+```
+
+Em **Fontes e extensões**, filtre por **Inglês**, atualize ComicHubFree e Read Comics Online
+se houver atualização, sincronize as fontes e habilite ambas com o tipo **HQ**.
+Em **Pesquisa**, selecione uma fonte de cada vez e procure `Batman`.
+O primeiro acesso pode levar mais de um minuto; o backend permite até 100 segundos para buscas
+do Suwayomi, mantendo 25 segundos para os outros provedores.
+
+Se a busca continuar bloqueada, consulte:
+
+```bash
+docker compose logs --tail=100 byparr suwayomi
+```
+
+Uma mensagem de integração desativada indica que o contêiner do Suwayomi ainda não recebeu
+`FLARESOLVERR_ENABLED=true`. Erros de conexão com `byparr:8191` indicam que o serviço auxiliar
+não está pronto ou não está acessível. Desafios podem continuar falhando mesmo com a configuração
+correta; a inclusão do serviço não garante acesso a cada site.
+
+Referências: [Compose oficial do Suwayomi](https://github.com/Suwayomi/Suwayomi-Server-docker/blob/main/docker-compose.yml)
+e [variáveis do contêiner](https://github.com/Suwayomi/Suwayomi-Server-docker#environment-variables).
+
+#### Integração
 
 Detalhes em [`docs/suwayomi-schema.md`](docs/suwayomi-schema.md). O backend **não executa APKs**: ele só
 conversa com o Suwayomi via GraphQL. Fontes offline, removidas ou com erro não interrompem a pesquisa —

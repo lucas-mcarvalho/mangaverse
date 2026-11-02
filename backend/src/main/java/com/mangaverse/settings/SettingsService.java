@@ -34,6 +34,7 @@ public class SettingsService {
     static final String MONITOR_LAST_RUN = "monitor.lastRunAt";
     static final String LANGUAGES = "search.languages";
     static final String CONTENT_RATINGS = "mangadex.contentRatings";
+    static final String TRANSLATION_THREADS = "translation.threads";
 
     public static final int MIN_MONITOR_INTERVAL = 30;
 
@@ -56,12 +57,13 @@ public class SettingsService {
                                boolean autoDownloadEnabled, boolean monitorEnabled, int monitorIntervalMinutes,
                                Instant monitorLastRunAt, List<String> languages, List<String> contentRatings,
                                List<String> allowedRoots, boolean cbrSupported, String cbrTool,
-                               boolean comicVineConfigured, String suwayomiUrl) {
+                               boolean comicVineConfigured, String suwayomiUrl, int translationThreads,
+                               int availableCpus) {
     }
 
     public record SettingsUpdate(String mangaLibraryPath, String comicLibraryPath, Integer maxConcurrentDownloads,
                                  Boolean autoDownloadEnabled, Boolean monitorEnabled, Integer monitorIntervalMinutes,
-                                 List<String> languages, List<String> contentRatings) {
+                                 List<String> languages, List<String> contentRatings, Integer translationThreads) {
     }
 
     @EventListener(ApplicationReadyEvent.class)
@@ -75,7 +77,8 @@ public class SettingsService {
                 autoDownloadEnabled(), monitorEnabled(), monitorIntervalMinutes(), monitorLastRunAt(), languages(),
                 contentRatings(), pathGuard.roots().stream().map(Path::toString).toList(),
                 archiveService.cbrSupported(), archiveService.cbrTool(),
-                properties.providers().comicvine().configured(), properties.providers().suwayomi().baseUrl());
+                properties.providers().comicvine().configured(), properties.providers().suwayomi().baseUrl(),
+                translationThreads(), availableCpus());
     }
 
     @Transactional
@@ -119,6 +122,12 @@ public class SettingsService {
             put(CONTENT_RATINGS, String.join(",", ratings));
             mangaDex.setContentRatings(ratings);
         }
+        if (u.translationThreads() != null) {
+            if (u.translationThreads() < 1 || u.translationThreads() > availableCpus()) {
+                throw ApiException.badRequest("Núcleos para tradução deve estar entre 1 e " + availableCpus() + ".");
+            }
+            put(TRANSLATION_THREADS, String.valueOf(u.translationThreads()));
+        }
         return view();
     }
 
@@ -144,6 +153,17 @@ public class SettingsService {
 
     public int monitorIntervalMinutes() {
         return Math.max(MIN_MONITOR_INTERVAL, parseInt(get(MONITOR_INTERVAL, "360"), 360));
+    }
+
+    /** Threads de CPU que o tradutor usa por página; o padrão deixa o restante da máquina livre. */
+    public int translationThreads() {
+        int fallback = Math.min(4, availableCpus());
+        return Math.max(1, Math.min(availableCpus(), parseInt(get(TRANSLATION_THREADS, String.valueOf(fallback)), fallback)));
+    }
+
+    /** Núcleos do host: o backend e o tradutor rodam na mesma máquina, sem limite de CPU no Compose. */
+    public int availableCpus() {
+        return Runtime.getRuntime().availableProcessors();
     }
 
     public Instant monitorLastRunAt() {

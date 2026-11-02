@@ -23,6 +23,8 @@ import com.mangaverse.provider.Provider;
 import com.mangaverse.provider.ProviderRegistry;
 import com.mangaverse.provider.ProviderRepository;
 import com.mangaverse.provider.ProviderService;
+import com.mangaverse.provider.suwayomi.SuwayomiClient;
+import com.mangaverse.provider.suwayomi.SuwayomiSourceProvider;
 import com.mangaverse.provider.spi.ContentProvider;
 import com.mangaverse.provider.spi.ContentType;
 import com.mangaverse.provider.spi.ProviderException;
@@ -66,17 +68,18 @@ public class SearchService {
         String q = text.trim();
         Set<ContentType> typeFilter = types == null || types.isEmpty() ? EnumSet.noneOf(ContentType.class) : EnumSet.copyOf(types);
         SearchQuery query = new SearchQuery(q, new LinkedHashSet<>(settings.languages()), typeFilter, 20);
-        ProviderRegistry.SearchPlan plan = registry.searchPlan(typeFilter);
-        List<ContentProvider> providers = plan.selected().stream()
-                .filter(p -> providerCodes == null || providerCodes.isEmpty() || providerCodes.contains(p.code()))
-                .toList();
+        ProviderRegistry.SearchPlan plan = providerCodes == null || providerCodes.isEmpty()
+                ? registry.searchPlan(typeFilter) : registry.searchPlan(typeFilter, providerCodes);
+        List<ContentProvider> providers = plan.selected();
 
         Map<String, CompletableFuture<List<RemoteTitle>>> futures = new HashMap<>();
         Map<String, Long> started = new HashMap<>();
         for (ContentProvider p : providers) {
             started.put(p.code(), System.nanoTime());
+            Duration timeout = SuwayomiSourceProvider.handles(p.code())
+                    ? SuwayomiClient.REQUEST_TIMEOUT.plusSeconds(10) : PROVIDER_TIMEOUT;
             futures.put(p.code(), CompletableFuture.supplyAsync(() -> providerService.search(p, query), executor)
-                    .orTimeout(PROVIDER_TIMEOUT.toSeconds(), TimeUnit.SECONDS));
+                    .orTimeout(timeout.toSeconds(), TimeUnit.SECONDS));
         }
 
         List<RemoteTitle> all = new ArrayList<>();

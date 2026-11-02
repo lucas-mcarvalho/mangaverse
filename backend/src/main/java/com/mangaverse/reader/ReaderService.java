@@ -90,6 +90,12 @@ public class ReaderService {
     public record ProgressRequest(int page, int totalPages, Boolean completed) {
     }
 
+    /** "Título - rótulo" do capítulo, sem consultar a fonte; usado para nomear arquivos exportados. */
+    public String displayName(UUID chapterId) {
+        ChapterInfo info = loadInfo(chapterId);
+        return info.contentTitle() + " - " + info.label();
+    }
+
     public ReaderChapterView open(UUID chapterId, AppUser user) {
         ChapterInfo info = loadInfo(chapterId);
         int pageCount;
@@ -278,6 +284,15 @@ public class ReaderService {
         }
         if (candidates.isEmpty()) {
             return null;
+        }
+        // Mantém a fonte escolhida: idioma/grupo iguais não identificam o mesmo provedor.
+        if (current.getSource() != null) {
+            var sameSource = candidates.stream()
+                    .filter(c -> c.getSource() != null && Objects.equals(c.getSource().getId(), current.getSource().getId()))
+                    .findFirst();
+            if (sameSource.isPresent()) {
+                return sameSource.get().getId().toString();
+            }
         }
         return candidates.stream()
                 .filter(c -> Objects.equals(c.getLanguage(), current.getLanguage()) && Objects.equals(c.getScanlator(), current.getScanlator()))

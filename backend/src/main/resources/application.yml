@@ -55,6 +55,8 @@ logging:
     com.mangaverse: ${LOG_LEVEL:INFO}
 
 mangaverse:
+  translation:
+    url: ${MANGAVERSE_TRANSLATION_URL:http://localhost:8091}
   admin:
     username: ${MANGAVERSE_ADMIN_USERNAME:admin}
     password: ${MANGAVERSE_ADMIN_PASSWORD:}

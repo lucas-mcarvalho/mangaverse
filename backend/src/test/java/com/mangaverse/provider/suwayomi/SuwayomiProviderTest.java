@@ -136,10 +136,33 @@ class SuwayomiProviderTest {
         String trace = "Exception while fetching data (/fetchSourceManga) : Timeout\n\njava.io.IOException: Timeout\n\tat x.y(Unknown Source)";
         assertThat(SuwayomiClient.friendlyError(trace)).isEqualTo("Timeout");
         assertThat(SuwayomiClient.friendlyError("Exception while fetching data (/fetchSourceManga) : Cloudflare bypass currently disabled\n\tat a"))
-                .contains("Cloudflare").contains("não contorna").doesNotContain("\tat");
+                .contains("Cloudflare", "desativada", "FLARESOLVERR_ENABLED").doesNotContain("\tat");
+        assertThat(SuwayomiClient.friendlyError("CloudFlare challenge failed\n\tat a"))
+                .contains("Byparr/FlareSolverr", "integração ativa").doesNotContain("desativada", "\tat");
         MockHttp http = new MockHttp(req -> Reply.json("{\"errors\":[{\"message\":\"" + trace.replace("\n", "\\n").replace("\t", "\\t") + "\"}],\"data\":null}"));
         assertThatThrownBy(() -> client(http).execute(SuwayomiClient.Q_SOURCES, Map.of()))
                 .isInstanceOf(ProviderException.class).hasMessage("Erro do Suwayomi: Timeout");
+    }
+
+    @Test
+    void binaryRejectsHtmlEvenWhenServerLabelsItAsAnImage() {
+        MockHttp http = new MockHttp(req -> new Reply(200, "image/jpg",
+                "<!DOCTYPE html><html><body>Unavailable</body></html>".getBytes(java.nio.charset.StandardCharsets.UTF_8)));
+
+        assertThatThrownBy(() -> client(http).fetchBinary("/api/v1/manga/1/chapter/0/page/0"))
+                .isInstanceOf(ProviderException.class).hasMessageContaining("em vez de uma imagem");
+    }
+
+    @Test
+    void binaryUsesDetectedImageTypeInsteadOfUpstreamHeader() throws Exception {
+        java.io.ByteArrayOutputStream png = new java.io.ByteArrayOutputStream();
+        javax.imageio.ImageIO.write(new java.awt.image.BufferedImage(2, 2, java.awt.image.BufferedImage.TYPE_INT_RGB), "png", png);
+        MockHttp http = new MockHttp(req -> new Reply(200, "image/jpg", png.toByteArray()));
+
+        var image = client(http).fetchBinary("/api/v1/manga/1/chapter/0/page/0");
+
+        assertThat(image.contentType()).isEqualTo("image/png");
+        assertThat(image.data()).isEqualTo(png.toByteArray());
     }
 
     @Test

@@ -60,7 +60,7 @@ class MonitorIntegrationTest extends IntegrationTestBase {
         fake.chapters.add(FakeProvider.chapter("c2", "2"));
         assertThat(monitor.checkContent(entry.getContent().getId(), true).autoQueued()).isZero();
 
-        settings.update(new SettingsService.SettingsUpdate(null, null, null, true, null, null, null, null));
+        settings.update(new SettingsService.SettingsUpdate(null, null, null, true, null, null, null, null, null));
         fake.chapters.add(FakeProvider.chapter("c3", "3"));
         var result = monitor.checkContent(entry.getContent().getId(), true);
 

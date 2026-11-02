@@ -5,7 +5,7 @@ export const api = axios.create({
   withCredentials: true,
   xsrfCookieName: 'XSRF-TOKEN',
   xsrfHeaderName: 'X-XSRF-TOKEN',
-  timeout: 120_000,
+  timeout: 180_000,
 })
 
 type Listener = () => void

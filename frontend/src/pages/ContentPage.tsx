@@ -3,15 +3,17 @@ import {
   BookOpen, Check, CheckCheck, Download, ExternalLink, Eye, EyeOff, HardDrive, Heart, Link2, Loader2, Play, Plus,
   Layers, Radar, RefreshCw, Search, Sparkles, Trash2, Unlink,
 } from 'lucide-react'
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router'
 import { api, errorMessage } from '../api/client'
 import type { Category, ChapterView, CheckResult, ContentView, EnqueueResult, LibraryStatus, SearchResponse, Settings } from '../api/types'
 import { ChapterControls, matchesChapter, useChapterControls } from '../components/ChapterControls'
 import { Modal } from '../components/Modal'
+import { TranslationControls } from '../components/TranslationControls'
 import { useToast } from '../components/Toast'
 import { Badge, Cover, EmptyState, ErrorState, PageLoader, Spinner, Toggle } from '../components/ui'
 import { groupByVolume } from '../lib/chapters'
+import { loadSourcePreference, saveSourcePreference } from '../lib/sourcePreference'
 import { cx, downloadStatusLabel, formatBytes, formatDate, languageLabel, publicationLabel, statusLabel, timeAgo, typeLabel } from '../lib/format'
 import { Hero } from './RemoteTitlePage'
 
@@ -24,6 +26,8 @@ export default function ContentPage() {
   const toast = useToast()
   const [selected, setSelected] = useState<Set<string>>(new Set())
   const [lang, setLang] = useState('all')
+  const [source, setSource] = useState(() => loadSourcePreference(contentId))
+  useEffect(() => setSource(loadSourcePreference(contentId)), [contentId])
   const [onlyUnread, setOnlyUnread] = useState(false)
   const [onlyDownloaded, setOnlyDownloaded] = useState(false)
   const [linkOpen, setLinkOpen] = useState(false)
@@ -48,6 +52,7 @@ export default function ContentPage() {
     qc.invalidateQueries({ queryKey: key })
     qc.invalidateQueries({ queryKey: ['library'] })
     qc.invalidateQueries({ queryKey: ['continue', contentId] })
+    qc.invalidateQueries({ queryKey: ['dashboard'] })
   }
   const onError = (e: unknown) => toast.error(errorMessage(e))
 
@@ -104,10 +109,12 @@ export default function ContentPage() {
     toast.success(`${r.queued} capítulo(s) na fila de downloads.${reasons.length ? ` Ignorados: ${reasons.join(', ')}.` : ''}`)
   }
 
+  const activeSource = data?.sources.some((s) => s.providerCode === source) ? source : 'all'
   const chapters = useMemo(() => (data?.chapters ?? []).filter((c) =>
+    (activeSource === 'all' || c.providerCode === activeSource) &&
     (lang === 'all' || c.language === lang || (lang === 'local' && c.providerCode === 'local')) &&
     (!onlyUnread || !c.read) && (!onlyDownloaded || c.downloaded) && matchesChapter(c, controls.query)),
-  [data, lang, onlyUnread, onlyDownloaded, controls.query])
+  [data, activeSource, lang, onlyUnread, onlyDownloaded, controls.query])
   const preferred = settings?.languages[0] ?? 'pt-br'
   /** Uma linha por número de capítulo: escolhe a melhor versão e guarda as alternativas. */
   const rows = useMemo(() => {
@@ -125,6 +132,14 @@ export default function ContentPage() {
   }, [chapters, bestOnly, preferred])
   const languages = useMemo(() => Array.from(new Set((data?.chapters ?? []).map((c) => c.language).filter(Boolean))) as string[], [data])
   const volumes = useMemo(() => Array.from(new Set((data?.chapters ?? []).filter((c) => c.downloadable && c.volume).map((c) => c.volume!))), [data])
+  const resumeChapter = data?.chapters.find((c) => c.id === next?.chapterId)
+  const sourceResume = activeSource !== 'all' && resumeChapter?.providerCode !== activeSource
+    ? chapters.find((c) => c.readable && c.number != null && c.number === resumeChapter?.number)
+      ?? chapters.find((c) => c.readable && !c.read) ?? chapters.find((c) => c.readable)
+    : undefined
+  const readingTarget = sourceResume
+    ? { chapterId: sourceResume.id, page: sourceResume.progressPage ?? 0, label: sourceResume.label }
+    : activeSource === 'all' || resumeChapter?.providerCode === activeSource ? next : null
 
   if (isLoading) return <PageLoader />
   if (error || !data) return <ErrorState message={errorMessage(error)} onRetry={refetch} />
@@ -154,7 +169,7 @@ export default function ContentPage() {
             {lib?.lastCheckedAt && <><dt className="text-zinc-500">Verificado</dt><dd>{timeAgo(lib.lastCheckedAt)}</dd></>}
           </dl>
           <div className="flex flex-wrap gap-2 pt-1">
-            {next && <Link to={`/ler/${next.chapterId}`} className="btn-primary"><Play className="h-4 w-4 fill-current" /> {data.readChapters > 0 || next.page > 0 ? 'Continuar' : 'Começar'}: {next.label}</Link>}
+            {readingTarget && <Link to={`/ler/${readingTarget.chapterId}`} className="btn-primary"><Play className="h-4 w-4 fill-current" /> {data.readChapters > 0 || readingTarget.page > 0 ? 'Continuar' : 'Começar'}: {readingTarget.label}</Link>}
             {!lib && <button className="btn-primary" onClick={() => addToLibrary.mutate()}><Plus className="h-4 w-4" /> Adicionar à biblioteca</button>}
             {lib && (
               <button className={cx('btn-secondary', lib.favorite && 'text-pink-accent')} onClick={() => updateEntry.mutate({ favorite: !lib.favorite })}>
@@ -197,7 +212,7 @@ export default function ContentPage() {
             <button className="btn-secondary" disabled={check.isPending || !data.sources.length} onClick={() => check.mutate()}>
               {check.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Radar className="h-4 w-4" />} Verificar agora
             </button>
-            <button className="btn-ghost text-red-300" onClick={() => confirm('Remover da biblioteca? Os arquivos no disco serão mantidos.') && removeFromLibrary.mutate()}>
+            <button className="btn-ghost text-red-300" disabled={removeFromLibrary.isPending} onClick={() => removeFromLibrary.mutate()}>
               <Trash2 className="h-4 w-4" /> Remover da biblioteca
             </button>
           </div>
@@ -252,6 +267,14 @@ export default function ContentPage() {
         <div className="flex flex-wrap items-center justify-between gap-3">
           <h2 className="text-lg font-semibold">{comic ? 'Edições' : 'Capítulos'} <span className="text-sm font-normal text-zinc-500">({rows.length})</span></h2>
           <div className="flex flex-wrap items-center gap-1.5">
+            {data.sources.length > 1 && (
+              <label className="flex items-center gap-2 text-xs text-zinc-400">Fonte
+                <select className="input w-auto py-1 text-xs" value={activeSource} onChange={(e) => { setSource(e.target.value); saveSourcePreference(contentId, e.target.value); setSelected(new Set()) }}>
+                  <option value="all">Todas as fontes</option>
+                  {data.sources.map((s) => <option key={s.id} value={s.providerCode}>{s.providerName}</option>)}
+                </select>
+              </label>
+            )}
             <button className={cx('chip', bestOnly && 'chip-active')} onClick={() => setBestOnly(!bestOnly)} title="Mostra só a melhor versão de cada número"><Layers className="h-3 w-3" /> Uma versão por capítulo</button>
             {languages.length > 1 && <>
               <button className={cx('chip', lang === 'all' && 'chip-active')} onClick={() => setLang('all')}>Todos idiomas</button>
@@ -316,6 +339,9 @@ export default function ContentPage() {
                   {c.downloadStatus && <Badge tone={c.downloadStatus === 'FAILED' ? 'red' : 'accent'}>{c.downloadStatus === 'DOWNLOADING' && <Spinner className="h-3 w-3" />}{downloadStatusLabel[c.downloadStatus]}</Badge>}
                   {c.downloadable && !c.downloaded && !c.downloadStatus && (
                     <button className="btn-ghost p-1.5" title="Baixar" onClick={() => enqueue.mutate([c.id])}><Download className="h-4 w-4" /></button>
+                  )}
+                  {(c.readable || c.downloaded) && (c.language?.startsWith('en') || c.providerCode === 'local' || !c.language) && (
+                    <TranslationControls chapterId={c.id} label={c.label} />
                   )}
                   {c.readable ? (
                     <Link to={`/ler/${c.id}`} className="btn-secondary px-2.5 py-1.5"><BookOpen className="h-4 w-4" /> Ler</Link>

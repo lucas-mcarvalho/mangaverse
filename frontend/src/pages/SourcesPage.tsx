@@ -1,11 +1,13 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Activity, Download, Plus, RefreshCw, Search, Trash2, Upload, Wifi, WifiOff } from 'lucide-react'
 import { useState } from 'react'
+import { Link } from 'react-router'
 import { api, errorMessage } from '../api/client'
 import type { ExtensionView, ProviderView, StoreView, SuwayomiStatus } from '../api/types'
 import { useToast } from '../components/Toast'
 import { Badge, Cover, EmptyState, ErrorState, PageLoader, SectionTitle, Spinner, Toggle } from '../components/ui'
 import { cx, languageLabel, timeAgo } from '../lib/format'
+import { BrazilianComicsSources } from '../components/BrazilianComicsSources'
 
 const KEIYOUSHI = 'https://raw.githubusercontent.com/keiyoushi/extensions/repo/index.min.json'
 
@@ -85,6 +87,8 @@ export default function SourcesPage() {
         </div>
       </section>
 
+      <BrazilianComicsSources providers={sources} online={suwayomi.data?.online === true} />
+
       <section className="space-y-4">
         <SectionTitle action={
           <button className="btn-secondary" disabled={sync.isPending || !suwayomi.data?.online} onClick={() => sync.mutate()}>
@@ -125,6 +129,11 @@ export default function SourcesPage() {
                     <input type="number" className="input w-16 px-2 py-1 text-xs" defaultValue={p.priority} min={0} max={1000}
                       onBlur={(e) => Number(e.target.value) !== p.priority && update.mutate({ id: p.id, priority: Number(e.target.value) })} />
                   </label>
+                  {p.enabled && p.supportsSearch && (
+                    <Link className="btn-ghost px-2 py-1.5" to={`/pesquisa?fonte=${encodeURIComponent(p.code)}`} title={`Pesquisar em ${p.name}`} aria-label={`Pesquisar em ${p.name}`}>
+                      <Search className="h-4 w-4" />
+                    </Link>
+                  )}
                   <Toggle checked={p.enabled} onChange={(v) => update.mutate({ id: p.id, enabled: v })} />
                 </div>
               ))}

@@ -55,6 +55,31 @@ class ProviderRegistryTest {
     }
 
     @Test
+    void requestedComicSourcesAreFilteredBeforeLimit() {
+        ProviderRegistry registry = registry(2, List.of(
+                source("1", "Scan A", 20, "AUTO"), source("2", "Scan B", 20, "AUTO"),
+                source("3", "Read Comics Online", 60, "COMIC"), source("4", "ComicHubFree", 60, "COMIC")));
+
+        ProviderRegistry.SearchPlan plan = registry.searchPlan(Set.of(), Set.of("suwayomi:3", "suwayomi:4"));
+
+        assertThat(plan.selected()).extracting(ContentProvider::code).containsExactly("suwayomi:3", "suwayomi:4");
+        assertThat(plan.skipped()).isEmpty();
+    }
+
+    @Test
+    void requestedSourcesStillRespectTypeAndLimit() {
+        ProviderRegistry registry = registry(1, List.of(
+                source("1", "Mangá", 20, "MANGA"), source("2", "Read Comics Online", 60, "COMIC"),
+                source("3", "ComicHubFree", 60, "COMIC")));
+
+        ProviderRegistry.SearchPlan plan = registry.searchPlan(Set.of(ContentType.COMIC),
+                Set.of("suwayomi:1", "suwayomi:2", "suwayomi:3"));
+
+        assertThat(plan.selected()).extracting(ContentProvider::code).containsExactly("suwayomi:2");
+        assertThat(plan.skipped()).extracting(Provider::getCode).containsExactly("suwayomi:3");
+    }
+
+    @Test
     void searchWithoutTypeUsesPriorityOrderAndReportsSkipped() {
         ProviderRegistry registry = registry(2, List.of(
                 source("1", "A", 20, "AUTO"), source("2", "B", 20, "MANGA"), source("3", "C", 60, "COMIC")));

@@ -4,11 +4,13 @@ import {
   ZoomIn, ZoomOut,
 } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useRef, useState, type TouchEvent } from 'react'
-import { Link, useNavigate, useParams } from 'react-router'
+import { Link, useNavigate, useParams, useSearchParams } from 'react-router'
 import { api, errorMessage } from '../api/client'
+import { saveSourcePreference } from '../lib/sourcePreference'
 import type { ReaderChapter } from '../api/types'
 import { ErrorState, PageLoader, Spinner } from '../components/ui'
 import { cx } from '../lib/format'
+import { TranslationControls, useTranslation } from '../components/TranslationControls'
 
 type Mode = 'vertical' | 'single' | 'double'
 type Direction = 'ltr' | 'rtl'
@@ -54,6 +56,16 @@ export default function ReaderPage() {
 }
 
 function Reader({ chapter }: { chapter: ReaderChapter }) {
+  const [params, setParams] = useSearchParams()
+  const translation = useTranslation(chapter.chapterId)
+  const translated = params.get('traducao') === 'pt-br'
+  const translationReady = translation.data?.status === 'READY'
+  const displayPages = useMemo(() => translated && translationReady
+    ? chapter.pages.map((_, index) => `/api/translations/chapters/${chapter.chapterId}/pages/${index}`)
+    : chapter.pages, [chapter.chapterId, chapter.pages, translated, translationReady])
+  useEffect(() => {
+    if (!chapter.local && chapter.providerCode) saveSourcePreference(chapter.contentId, chapter.providerCode)
+  }, [chapter.contentId, chapter.providerCode, chapter.local])
   const navigate = useNavigate()
   const [prefs, setPrefsState] = useState<Prefs>(() => loadPrefs(chapter.contentId, chapter))
   const [page, setPage] = useState(chapter.startPage)
@@ -89,9 +101,9 @@ function Reader({ chapter }: { chapter: ReaderChapter }) {
   useEffect(() => {
     for (let i = page + 1; i <= Math.min(total - 1, page + 3); i++) {
       const img = new Image()
-      img.src = chapter.pages[i]
+      img.src = displayPages[i]
     }
-  }, [page, total, chapter.pages])
+  }, [page, total, displayPages])
 
   const goNext = useCallback(() => {
     if (page + step >= total) {
@@ -217,9 +229,9 @@ function Reader({ chapter }: { chapter: ReaderChapter }) {
       {prefs.mode === 'vertical' ? (
         <div ref={verticalRef} className="h-full overflow-y-auto" onClick={onZoneClick}>
           <div className="mx-auto flex flex-col items-center" style={{ width: `min(100%, ${Math.round(900 * prefs.zoom)}px)` }}>
-            {chapter.pages.map((src, i) => (
-              <div key={src} data-page={i} className="relative w-full" style={{ minHeight: '40vh' }}>
-                <PageImage src={src} alt={`Página ${i + 1}`} className="w-full" eager={Math.abs(i - chapter.startPage) < 3} />
+            {displayPages.map((src, i) => (
+              <div key={i} data-page={i} className="relative w-full" style={{ minHeight: '40vh' }}>
+                <PageImage key={src} src={src} alt={`Página ${i + 1}`} className="w-full" eager={Math.abs(i - chapter.startPage) < 3} />
               </div>
             ))}
             <EndPanel chapter={chapter} inline />
@@ -229,7 +241,7 @@ function Reader({ chapter }: { chapter: ReaderChapter }) {
         <div className="h-full overflow-auto" onClick={onZoneClick}>
           <div className="flex min-h-full min-w-full items-center justify-center" style={{ transform: `scale(${prefs.zoom})`, transformOrigin: 'top center' }}>
             {ended ? <EndPanel chapter={chapter} /> : ordered.map((i) => (
-              <PageImage key={chapter.pages[i]} src={chapter.pages[i]} alt={`Página ${i + 1}`} eager
+              <PageImage key={displayPages[i]} src={displayPages[i]} alt={`Página ${i + 1}`} eager
                 className={cx(imgClass, prefs.mode === 'double' && prefs.fit !== 'original' && 'max-w-[50vw]', 'object-contain')} />
             ))}
           </div>
@@ -244,6 +256,13 @@ function Reader({ chapter }: { chapter: ReaderChapter }) {
           <p className="truncate text-xs text-zinc-400">{chapter.label}{chapter.title && chapter.title !== chapter.label ? ` · ${chapter.title}` : ''}{chapter.local ? ' · local' : ''}</p>
         </div>
         <span className="hidden text-sm tabular-nums text-zinc-300 sm:block">{Math.min(page + 1, total)} / {total}</span>
+        {translationReady ? (
+          <button className="btn-secondary px-2 py-1.5 text-xs" onClick={() => {
+            const next = new URLSearchParams(params)
+            if (translated) next.delete('traducao'); else next.set('traducao', 'pt-br')
+            setParams(next, { replace: true })
+          }}>{translated ? 'Português · ver original' : 'Original · ver português'}</button>
+        ) : <TranslationControls chapterId={chapter.chapterId} label={chapter.label} />}
         {save.isPending && <Spinner className="h-4 w-4" />}
         <button className="btn-ghost p-2" onClick={() => setPrefs({ zoom: Math.max(0.5, +(prefs.zoom - 0.25).toFixed(2)) })} title="Diminuir zoom (-)"><ZoomOut className="h-5 w-5" /></button>
         <button className="btn-ghost p-2" onClick={() => setPrefs({ zoom: Math.min(3, +(prefs.zoom + 0.25).toFixed(2)) })} title="Aumentar zoom (+)"><ZoomIn className="h-5 w-5" /></button>
@@ -271,6 +290,12 @@ function Reader({ chapter }: { chapter: ReaderChapter }) {
           )}
         </div>
       </div>
+
+      {translated && !translationReady && (
+        <div className="absolute inset-x-3 top-24 z-10 rounded-lg bg-amber-950/95 p-3 text-sm text-amber-200" role="status">
+          {translation.error ? 'Não foi possível consultar a tradução.' : 'A tradução ainda não está pronta.'} Exibindo o original.
+        </div>
+      )}
 
       {/* Barra inferior */}
       <div className={cx('absolute inset-x-0 bottom-0 z-10 flex items-center gap-3 bg-gradient-to-t from-black/90 to-black/0 px-3 pb-4 pt-10 transition-opacity duration-300', ui ? 'opacity-100' : 'pointer-events-none opacity-0')}>

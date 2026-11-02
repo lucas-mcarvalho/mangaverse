@@ -1,6 +1,7 @@
 package com.mangaverse.provider.suwayomi;
 
 import java.nio.charset.StandardCharsets;
+import java.time.Duration;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -19,6 +20,7 @@ import com.mangaverse.config.AppProperties;
 import com.mangaverse.config.HttpSupport;
 import com.mangaverse.provider.spi.FetchedImage;
 import com.mangaverse.provider.spi.ProviderException;
+import com.mangaverse.storage.archive.ImageTypes;
 
 import tools.jackson.databind.JsonNode;
 
@@ -30,6 +32,8 @@ import tools.jackson.databind.JsonNode;
 public class SuwayomiClient {
 
     public static final String CODE = "suwayomi";
+    // O Byparr do Suwayomi pode levar até 150 s para passar pelo Cloudflare.
+    public static final Duration REQUEST_TIMEOUT = Duration.ofSeconds(165);
 
     public static final String Q_ABOUT = "query { aboutServer { name version buildType } }";
 
@@ -79,7 +83,7 @@ public class SuwayomiClient {
     private final RateLimiter limiter;
 
     public SuwayomiClient(AppProperties.Suwayomi config, HttpSupport http) {
-        this(config, http, http.client(config.baseUrl()));
+        this(config, http, http.client(config.baseUrl(), REQUEST_TIMEOUT));
     }
 
     SuwayomiClient(AppProperties.Suwayomi config, HttpSupport http, WebClient client) {
@@ -119,7 +123,7 @@ public class SuwayomiClient {
                 .contentType(MediaType.APPLICATION_JSON)
                 .bodyValue(payload)
                 .retrieve()
-                .bodyToMono(JsonNode.class), 1);
+                .bodyToMono(JsonNode.class), 1, REQUEST_TIMEOUT);
         if (body == null) {
             throw new ProviderException(CODE, "Resposta vazia do Suwayomi.");
         }
@@ -141,14 +145,18 @@ public class SuwayomiClient {
 
     /**
      * Resume erros do Suwayomi para exibição: remove stack traces e o prefixo técnico do GraphQL
-     * e explica bloqueios anti-bot (que o MangaVerse não contorna).
+     * e diferencia a integração Cloudflare desativada de uma tentativa que falhou.
      */
     static String friendlyError(String raw) {
         if (raw == null || raw.isBlank()) {
             return "erro desconhecido";
         }
-        if (raw.contains("Cloudflare")) {
-            return "o site está protegido por Cloudflare (anti-bot) e não pode ser consultado; o MangaVerse não contorna essa proteção";
+        String lower = raw.toLowerCase(java.util.Locale.ROOT);
+        if (lower.contains("cloudflare bypass currently disabled")) {
+            return "A fonte usa Cloudflare e a integração está desativada no Suwayomi. Ative FLARESOLVERR_ENABLED e configure o serviço Byparr/FlareSolverr.";
+        }
+        if (lower.contains("cloudflare")) {
+            return "O Cloudflare bloqueou o acesso à fonte. Verifique o serviço Byparr/FlareSolverr e os logs do Suwayomi; a tentativa pode falhar mesmo com a integração ativa.";
         }
         String first = raw.lines().findFirst().orElse(raw).trim();
         first = first.replaceFirst("^Exception while fetching data \\([^)]*\\)\\s*:\\s*", "");
@@ -164,8 +172,12 @@ public class SuwayomiClient {
         ResponseEntity<byte[]> response = http.execute(CODE, client.get().uri(config.baseUrl() + path)
                 .headers(this::authorize)
                 .accept(MediaType.ALL).retrieve().toEntity(byte[].class), 1);
-        String type = response.getHeaders().getContentType() == null ? "image/jpeg" : response.getHeaders().getContentType().toString();
-        return new FetchedImage(response.getBody() == null ? new byte[0] : response.getBody(), type);
+        byte[] bytes = response.getBody() == null ? new byte[0] : response.getBody();
+        String type = ImageTypes.detect(bytes);
+        if (type == null) {
+            throw new ProviderException(CODE, "A fonte retornou HTML ou dados inválidos em vez de uma imagem. Tente outra fonte para esta edição.");
+        }
+        return new FetchedImage(bytes, type);
     }
 
     private static final Pattern MANGA_THUMBNAIL = Pattern.compile("^/api/v1/manga/(\\d+)/thumbnail$");

@@ -2,6 +2,17 @@ export type ContentType = 'MANGA' | 'MANHWA' | 'MANHUA' | 'COMIC'
 export type LibraryStatus = 'READING' | 'PLAN_TO_READ' | 'COMPLETED' | 'PAUSED' | 'DROPPED'
 export type DownloadStatus = 'QUEUED' | 'DOWNLOADING' | 'PAUSED' | 'COMPLETED' | 'FAILED' | 'CANCELLED'
 
+export interface TranslationJob {
+  chapterId: string
+  status: 'NONE' | 'QUEUED' | 'PROCESSING' | 'READY' | 'FAILED' | 'CANCELLED'
+  totalPages: number
+  completedPages: number
+  error: string | null
+  updatedAt: string | null
+  sourceLanguage: string
+  targetLanguage: string
+}
+
 export interface User { id: string; username: string; role: string }
 
 export interface Capabilities {
@@ -118,7 +129,7 @@ export interface Settings {
   mangaLibraryPath: string; comicLibraryPath: string; maxConcurrentDownloads: number; autoDownloadEnabled: boolean
   monitorEnabled: boolean; monitorIntervalMinutes: number; monitorLastRunAt: string | null; languages: string[]
   contentRatings: string[]; allowedRoots: string[]; cbrSupported: boolean; cbrTool: string | null
-  comicVineConfigured: boolean; suwayomiUrl: string
+  comicVineConfigured: boolean; suwayomiUrl: string; translationThreads: number; availableCpus: number
 }
 
 export interface DirectoryListing { path: string | null; parent: string | null; directories: string[]; roots: string[]; freeBytes: number | null }
@@ -131,7 +142,7 @@ export interface NotificationView {
 }
 
 export interface Dashboard {
-  continueReading: { contentId: string; title: string; coverUrl: string | null; chapterId: string; chapterLabel: string; page: number; totalPages: number; completed: boolean; type: ContentType }[]
+  continueReading: { entryId: string; contentId: string; title: string; coverUrl: string | null; chapterId: string; chapterLabel: string; page: number; totalPages: number; completed: boolean; type: ContentType }[]
   recentlyAdded: LibraryItem[]
   latestChapters: { id: string; contentId: string; contentTitle: string; coverUrl: string | null; chapterId: string | null; message: string; createdAt: string }[]
   activeDownloads: DownloadView[]
