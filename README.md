@@ -364,6 +364,9 @@ Ao terminar, use **Ler em português** e alterne entre **Português / Original**
 Para refazer uma edição já traduzida (por exemplo, depois de uma atualização do tradutor), abra
 **Traduzir** e use **Traduzir novamente → Confirmar**: as páginas traduzidas dessa edição são
 apagadas e a preparação recomeça do zero; o arquivo original não é alterado.
+Com a edição pronta, a mesma janela oferece **Salvar em pasta** (escolha uma pasta permitida do
+servidor, como a biblioteca ou o disco extra; o CBZ `Título - Edição (PT-BR).cbz` nunca sobrescreve um
+arquivo existente) e **Baixar** (o navegador baixa o CBZ; no celular, vai para os downloads do aparelho).
 
 O serviço `translator` localiza o texto com o detector neural CRAFT (EasyOCR), agrupa as linhas por
 balão, lê cada balão ampliado com Tesseract e traduz com um LLM local servido pelo Ollama
