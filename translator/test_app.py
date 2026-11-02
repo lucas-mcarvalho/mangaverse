@@ -67,6 +67,19 @@ class TranslationPageTest(unittest.TestCase):
             output = app.translate_page(self.encode(image), lambda _: self.fail("Sound effects stay as drawn"))
         self.assertEqual(Image.open(io.BytesIO(output)).convert("RGB").tobytes(), image.tobytes())
 
+    def test_lit_windows_on_a_dark_building_are_not_a_dark_balloon(self):
+        def scene(ink):
+            image = Image.new("RGB", (400, 300), "#e05a20")
+            draw = ImageDraw.Draw(image)
+            draw.rectangle((50, 70, 330, 170), fill=(12, 12, 12))
+            draw.text((80, 100), "LIT WINDOWS", fill=ink, font=ImageFont.truetype(app.FONT, 30))
+            return numpy.asarray(image), [(78, 98, 300, 136)]
+
+        pixels, lines = scene((184, 78, 60))
+        self.assertIsNone(app.balloon(pixels, lines, 30))
+        pixels, lines = scene((250, 250, 250))
+        self.assertEqual(app.balloon(pixels, lines, 30)[0], (12, 12, 12))
+
     def test_empty_translation_keeps_the_original_lettering(self):
         original = self.page()
         region = app.Region("Hello", (140, 120, 400, 160), numpy.ones((350, 900), bool), (0, 0),
@@ -118,14 +131,14 @@ class TranslationPageTest(unittest.TestCase):
             self.skipTest("Dicionário wamerican ausente no host; incluído no Dockerfile do tradutor.")
         cases = {"WHAT DID HE OFFER YOU2": "WHAT DID HE OFFER YOU?", "T'M CALLING BECAUSE T CAN'T": "I'M CALLING BECAUSE I CAN'T",
                  "PFFT. TELLITAGAIN.": "PFFT. TELL IT AGAIN.", "HE'S #$%^ EVIL": "HE'S EVIL", "BON'T PUSH IT.": "DON'T PUSH IT.",
-                 "THAT'S BIBBO.": "THAT'S BIBBO."}
+                 "THAT'S BIBBO.": "THAT'S BIBBO.", "YOU HEAR MEZ:": "YOU HEAR ME?!", "SEEZ": "SEE?"}
         for source, expected in cases.items():
             self.assertEqual(app.clean_text([(word, 90, 1) for word in source.split()])[0], expected)
 
     def test_caption_quotes_are_kept_where_the_source_had_them(self):
         bracket = lambda text: f"[{text}]"
         self.assertEqual(app.translate_quoted('"frankly, we\'re all scared."', bracket), "“[Frankly, we're all scared.]”")
-        self.assertEqual(app.translate_quoted('"he said so.', bracket), "“[He said so.]")
+        self.assertEqual(app.translate_quoted('"he said so, again.', bracket), "“[He said so, again.]")
         self.assertEqual(app.translate_quoted('"hey yourself.', bracket), "[Hey yourself.]")
 
     def test_untranslated_interjections_are_translated(self):

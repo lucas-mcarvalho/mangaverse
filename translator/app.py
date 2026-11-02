@@ -278,6 +278,11 @@ def balloon(pixels, lines, height):
                       interior[:, -1].sum() > tail and ox + interior.shape[1] < pixels.shape[1])
         if covered < 0.85:
             continue
+        ink = lettering_ink(pixels, lines, fill)
+        if luminance(fill) < 80 and ink is not None and (luminance(ink) < 100 or max(ink) - min(ink) > 100):
+            # Dark balloons are lettered in light, mostly unsaturated colours (white, grey, pale
+            # green); strongly coloured "strokes" on a dark area are lit windows or other art.
+            continue
         if any(open_sides):
             if luminance(fill) < 235:
                 continue
@@ -289,6 +294,13 @@ def balloon(pixels, lines, height):
             interior &= near
         return fill, interior, (ox, oy)
     return None
+
+
+def lettering_ink(pixels, lines, fill):
+    """Median colour of the strokes that differ clearly from the fill, or None."""
+    inside = numpy.concatenate([pixels[y0:y1, x0:x1].reshape(-1, 3) for x0, y0, x1, y1 in lines]).astype(numpy.int16)
+    strokes = inside[numpy.abs(inside - numpy.array(fill)).max(axis=1) > 100]
+    return tuple(int(c) for c in numpy.median(strokes, axis=0)) if len(strokes) else None
 
 
 def split_by_balloon(pixels, lines):
@@ -309,9 +321,10 @@ def split_by_balloon(pixels, lines):
             x, y = (other[0] + other[2]) // 2 - ox, (other[1] + other[3]) // 2 - oy
             # Dark lettering lies inside any dark region, and light sound effects inside light
             # balloons, so fills and letter sizes must match too.
+            # The detector sometimes boxes two lettering lines together, hence up to 2.6x.
             heights = sorted((line[3] - line[1], other[3] - other[1]))
             if j != i and 0 <= y < interior.shape[0] and 0 <= x < interior.shape[1] and interior[y, x] \
-                    and numpy.abs(colours[i] - colours[j]).max() < 40 and heights[1] <= 1.8 * heights[0]:
+                    and numpy.abs(colours[i] - colours[j]).max() < 40 and heights[1] <= 2.6 * heights[0]:
                 parent[find(j)] = find(i)
     groups = {}
     for i, line in enumerate(lines):
@@ -424,9 +437,11 @@ def fix_caps_word(word):
         word = re.sub(r"(?<=[A-Z])2Z?(?=$|[!\"”’'.,])", "?", word)
         # A serifed I comes back as T: "T'M CALLING", "AND T DIDN'T".
         word = re.sub(r"^T(?=$|'(?:M|LL|VE|D)\b|[.,!?])", "I", word)
-        if re.fullmatch(r"[A-Z']{2,}Z", word) and not re.search(r"(ZZ|TZ|IZ)$", word) \
-                and word.lower() not in dictionary():
-            word = word[:-1] + "?"
+        # "MEZ:" is "ME?!": the exclamation mark of "?!" comes back as a colon or stays "!".
+        match = re.fullmatch(r"([A-Z']{2,})Z([:;!]?)", word)
+        if match and not re.search(r"(ZZ|TZ|IZ)$", match.group(1) + "Z") \
+                and match.group(1).lower() + "z" not in dictionary():
+            word = match.group(1) + "?" + ("!" if match.group(2) else "")
     return word
 
 
@@ -589,10 +604,7 @@ def recognize(image):
             continue
         if caps:
             text = sentence_case(text)
-        inside = numpy.concatenate([pixels[y0:y1, x0:x1].reshape(-1, 3) for x0, y0, x1, y1 in lines]).astype(numpy.int16)
-        strokes = inside[numpy.abs(inside - numpy.array(fill)).max(axis=1) > 100]
-        ink = tuple(int(c) for c in numpy.median(strokes, axis=0)) if len(strokes) else \
-            ((0, 0, 0) if luminance(fill) >= 128 else (255, 255, 255))
+        ink = lettering_ink(pixels, lines, fill) or ((0, 0, 0) if luminance(fill) >= 128 else (255, 255, 255))
         regions.append(Region(comic_dashes(text), box, interior, window, fill, ink, height, caps))
     return regions
 
@@ -734,7 +746,7 @@ def unquote(text):
     closes = text.rstrip(" .,!?…")[-1:] in QUOTES
     inner = text.translate({ord(q): None for q in QUOTES}).strip()
     inner = re.sub(r"^[^A-Za-z]*[a-z]", lambda m: m.group(0).upper(), inner)
-    if opens != closes and len(inner.split()) < 3:
+    if opens != closes and len(inner.split()) <= 3:
         # Quotes left open for the next caption come with narration; on a short line it is OCR noise.
         opens = closes = False
     return opens, inner, closes
@@ -801,9 +813,10 @@ def translate_with_llm(texts):
         "model": LLM_MODEL, "stream": False, "format": schema,
         # The model leaves the GPU together with the rest of the engine when idle.
         "keep_alive": f"{max(1, int(IDLE_SECONDS // 60))}m",
-        "options": {"temperature": 0.2, "num_ctx": 4096},
+        # Bounded output: a confused model can repeat itself until the timeout.
+        "options": {"temperature": 0.2, "num_ctx": 4096, "num_predict": 200 + len(" ".join(texts))},
         "messages": [{"role": "system", "content": LLM_PROMPT},
-                     {"role": "user", "content": json.dumps(texts, ensure_ascii=False)}]}, 300)
+                     {"role": "user", "content": json.dumps(texts, ensure_ascii=False)}]}, 120)
     translations = json.loads(reply["message"]["content"])["translations"]
     if len(translations) != len(texts) or not all(isinstance(t, str) for t in translations):
         raise ValueError(f"LLM devolveu {len(translations)} traduções para {len(texts)} balões")
