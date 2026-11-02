@@ -2,12 +2,14 @@
 
 Only model installation needs the internet. Text lines are found by EasyOCR's CRAFT
 detector, grouped into balloons, read balloon by balloon with Tesseract and translated
-with Argos. Erased text is repainted with the balloon's own colour; text drawn straight
+by a local LLM served by Ollama (all balloons of a page in one request, so the model sees
+the conversation), or by Argos when no LLM is configured or it fails. Erased text is repainted with the balloon's own colour; text drawn straight
 over artwork (sound effects, logos) is left as is, since there is no flat fill to repaint.
 The original image remains in MangaVerse.
 """
 import csv
 import io
+import json
 import logging
 import multiprocessing
 import os
@@ -39,6 +41,11 @@ FONTS = (
 FONT = next((font for font in FONTS if Path(font).exists()), FONTS[-1])
 SLOTS = threading.BoundedSemaphore(2)
 IDLE_SECONDS = float(os.environ.get("TRANSLATOR_IDLE_MINUTES", "5")) * 60
+# Empty LLM_URL keeps the Argos-only engine.
+LLM_URL = os.environ.get("TRANSLATOR_LLM_URL", "").rstrip("/")
+LLM_MODEL = os.environ.get("TRANSLATOR_LLM_MODEL", "qwen3:4b-instruct")
+USE_GPU = os.environ.get("TRANSLATOR_GPU", "0") == "1"
+TRANSLATE_MANY = None
 TRANSLATE = None
 MODEL_LOCK = threading.Lock()
 DETECT_LOCK = threading.Lock()
@@ -97,10 +104,13 @@ def load_detector():
     import torch
 
     torch.set_num_threads(int(os.environ.get("OMP_NUM_THREADS", "2")))
+    gpu = USE_GPU and torch.cuda.is_available()
+    if USE_GPU and not gpu:
+        logging.warning("TRANSLATOR_GPU=1, mas a GPU não está visível no contêiner; detectando texto na CPU.")
     directory = Path(os.environ.get("XDG_DATA_HOME", "/models")) / "easyocr"
     directory.mkdir(parents=True, exist_ok=True)
     logging.info("Carregando detector de texto (o download ocorre somente no primeiro uso do volume).")
-    return easyocr.Reader(["en"], gpu=False, model_storage_directory=str(directory), verbose=False)
+    return easyocr.Reader(["en"], gpu=gpu, model_storage_directory=str(directory), verbose=False)
 
 
 def detect_lines(image):
@@ -717,30 +727,113 @@ def typeset(image, region, portuguese):
 QUOTES = "\"“”"
 
 
-def translate_quoted(text, translate):
-    """Narration often quotes speech across captions; the model misplaces those quote marks,
+def unquote(text):
+    """Narration often quotes speech across captions; translators misplace those quote marks,
     so they are removed before translating and put back where the source had them."""
     opens = text.lstrip()[:1] in QUOTES
     closes = text.rstrip(" .,!?…")[-1:] in QUOTES
     inner = text.translate({ord(q): None for q in QUOTES}).strip()
     inner = re.sub(r"^[^A-Za-z]*[a-z]", lambda m: m.group(0).upper(), inner)
-    if not inner:
-        return ""
-    portuguese = translate(inner).strip().translate({ord(q): None for q in QUOTES}).strip()
+    if opens != closes and len(inner.split()) < 3:
+        # Quotes left open for the next caption come with narration; on a short line it is OCR noise.
+        opens = closes = False
+    return opens, inner, closes
+
+
+def requote(opens, portuguese, closes):
+    portuguese = (portuguese or "").strip().translate({ord(q): None for q in QUOTES}).strip()
     if not portuguese:
         return ""
     return ("“" if opens else "") + portuguese + ("”" if closes else "")
 
 
-def translate_page(data: bytes, translate) -> bytes:
+def translate_quoted(text, translate):
+    opens, inner, closes = unquote(text)
+    return requote(opens, translate(inner), closes) if inner else ""
+
+
+LLM_PROMPT = """You translate comic book pages from English into Brazilian Portuguese.
+You receive the text of every balloon and caption of one page, in reading order, as a JSON list.
+The text was read by OCR: fix obviously misread words using the context before translating.
+Rules:
+- Return exactly one translation per item, in the same order.
+- Natural, colloquial Brazilian Portuguese (never European Portuguese: "Me faz rir", not "Faz-me rir"),
+  as in a professionally translated comic. Keep each speaker's tone; casual speech uses "tá", "pra", imperatives like "Sai".
+- Keep established English terms used in Brazil (royal flush, poker), and translate idioms by meaning, not word by word.
+- Be consistent across the page: same terms, same form of address ("você").
+- Keep character names, places and code names as they are (Batman, Gotham, Arkham, Bruce, Alfred...).
+- Keep the punctuation style: "...", "—", "!", "?". Do not add quotes, notes or explanations.
+- Translate sound words and interjections (Hey → Ei, Huh → Hã) unless they are names.
+- Credits: Writer → Roteiro, Artist → Arte, Colors → Cores, Letterer → Letras, Editor → Editor.
+- Keep translations about as short as the original; they must fit the same balloon."""
+
+
+def llm_request(path, payload, timeout):
+    data = None if payload is None else json.dumps(payload).encode()
+    request = urllib.request.Request(LLM_URL + path, data=data,
+                                     headers={"Content-Type": "application/json"})
+    with urllib.request.urlopen(request, timeout=timeout) as response:
+        return json.loads(response.read() or b"{}")
+
+
+def load_llm():
+    """Checks the model is installed in Ollama, pulling it once (about 2.5 GB) if needed."""
+    if not LLM_URL:
+        return None
+    try:
+        tags = llm_request("/api/tags", None, 10)
+        names = {model["name"] for model in tags.get("models", [])}
+        if LLM_MODEL not in names and LLM_MODEL + ":latest" not in names:
+            logging.info("Baixando modelo %s no Ollama; isso acontece somente uma vez.", LLM_MODEL)
+            llm_request("/api/pull", {"model": LLM_MODEL, "stream": False}, 3600)
+    except Exception as error:
+        logging.warning("LLM %s indisponível em %s (%s); traduzindo com Argos.", LLM_MODEL, LLM_URL, error)
+        return None
+    logging.info("Traduzindo com o LLM %s.", LLM_MODEL)
+    return translate_with_llm
+
+
+def translate_with_llm(texts):
+    """All balloons of a page in one request, so names and terms stay consistent."""
+    schema = {"type": "object", "required": ["translations"], "properties": {
+        "translations": {"type": "array", "items": {"type": "string"}, "minItems": len(texts), "maxItems": len(texts)}}}
+    reply = llm_request("/api/chat", {
+        "model": LLM_MODEL, "stream": False, "format": schema,
+        # The model leaves the GPU together with the rest of the engine when idle.
+        "keep_alive": f"{max(1, int(IDLE_SECONDS // 60))}m",
+        "options": {"temperature": 0.2, "num_ctx": 4096},
+        "messages": [{"role": "system", "content": LLM_PROMPT},
+                     {"role": "user", "content": json.dumps(texts, ensure_ascii=False)}]}, 300)
+    translations = json.loads(reply["message"]["content"])["translations"]
+    if len(translations) != len(texts) or not all(isinstance(t, str) for t in translations):
+        raise ValueError(f"LLM devolveu {len(translations)} traduções para {len(texts)} balões")
+    return translations
+
+
+def translate_texts(texts, translate, translate_many=None):
+    """Page-level translation with the LLM; any failure falls back to Argos balloon by balloon."""
+    if translate_many and texts:
+        try:
+            return translate_many(texts)
+        except Exception as error:
+            logging.warning("Falha no LLM (%s); traduzindo a página com Argos.", error)
+    return [translate(text) for text in texts]
+
+
+def translate_page(data: bytes, translate, translate_many=None) -> bytes:
     with warnings.catch_warnings():
         warnings.simplefilter("error", Image.DecompressionBombWarning)
         with Image.open(io.BytesIO(data)) as source:
             image = ImageOps.exif_transpose(source).convert("RGB")
     if image.width * image.height > Image.MAX_IMAGE_PIXELS:
         raise ValueError("Página excede 30 milhões de pixels.")
-    for region in recognize(image):
-        portuguese = interjections(region.text, translate_quoted(region.text, translate))
+    regions = recognize(image)
+    parts = [unquote(region.text) for region in regions]
+    pending = [index for index, (_, inner, _) in enumerate(parts) if inner]
+    translated = dict(zip(pending, translate_texts([parts[i][1] for i in pending], translate, translate_many)))
+    for index, region in enumerate(regions):
+        opens, _, closes = parts[index]
+        portuguese = interjections(region.text, requote(opens, translated.get(index), closes))
         if not portuguese:
             logging.warning("Tradução vazia; mantendo o original: %r", region.text)
             continue
@@ -823,10 +916,11 @@ def download_model(package):
 
 def load_models():
     """Runs in the engine process: everything heavy lives there."""
-    global DETECTOR, TRANSLATE
+    global DETECTOR, TRANSLATE, TRANSLATE_MANY
     logging.basicConfig(level=logging.INFO)
     DETECTOR = load_detector()
     TRANSLATE = load_translator()
+    TRANSLATE_MANY = load_llm()
 
 
 def engine_translate(data, threads=None):
@@ -834,7 +928,7 @@ def engine_translate(data, threads=None):
         # Chosen in MangaVerse's settings; applies from this page on, without reloading models.
         import torch
         torch.set_num_threads(threads)
-    return translate_page(data, TRANSLATE)
+    return translate_page(data, TRANSLATE, TRANSLATE_MANY)
 
 
 class Engine:
@@ -890,6 +984,9 @@ class Engine:
             logging.info("Tradutor ocioso; modelos descarregados da memória.")
 
 
+ENGINE_NAME = (f"{LLM_MODEL}+argos" if LLM_URL else "argos").encode() + b"-easyocr-tesseract"
+
+
 class Handler(BaseHTTPRequestHandler):
     def do_GET(self):
         if self.path != "/health":
@@ -899,7 +996,7 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header("Content-Type", "application/json")
         self.end_headers()
         loaded = b"true" if self.server.engine.loaded() else b"false"
-        self.wfile.write(b'{"ready":true,"loaded":' + loaded + b',"source":"en","target":"pt-br","engine":"argos-easyocr-tesseract"}')
+        self.wfile.write(b'{"ready":true,"loaded":' + loaded + b',"source":"en","target":"pt-br","engine":"' + ENGINE_NAME + b'"}')
 
     def do_POST(self):
         if self.path != "/translate":

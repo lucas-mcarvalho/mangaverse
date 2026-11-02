@@ -126,6 +126,7 @@ class TranslationPageTest(unittest.TestCase):
         bracket = lambda text: f"[{text}]"
         self.assertEqual(app.translate_quoted('"frankly, we\'re all scared."', bracket), "“[Frankly, we're all scared.]”")
         self.assertEqual(app.translate_quoted('"he said so.', bracket), "“[He said so.]")
+        self.assertEqual(app.translate_quoted('"hey yourself.', bracket), "[Hey yourself.]")
 
     def test_untranslated_interjections_are_translated(self):
         self.assertEqual(app.interjections("Hey.", "Hey."), "Ei.")
@@ -135,6 +136,45 @@ class TranslationPageTest(unittest.TestCase):
     def test_comic_dashes_do_not_split_sentences(self):
         self.assertEqual(app.comic_dashes("--Coming for you, Bib--"), "Coming for you, Bib...")
         self.assertEqual(app.comic_dashes("sutures--and grafts--are"), "sutures — and grafts — are")
+
+    def test_page_is_translated_by_the_llm_in_one_request_keeping_quotes(self):
+        regions = [app.Region(text, (140, 120, 400, 160), numpy.ones((350, 900), bool), (0, 0),
+                              (255, 255, 255), (0, 0, 0), 36) for text in ('"We\'re all scared."', "Hey, Bruce!")]
+        requests = []
+
+        def many(texts):
+            requests.append(texts)
+            return ["Todos estamos com medo.", "Ei, Bruce!"]
+
+        drawn = []
+        with patch.object(app, "recognize", return_value=regions), \
+                patch.object(app, "typeset", lambda image, region, text: drawn.append(text)):
+            app.translate_page(self.encode(self.page("")), lambda _: self.fail("Argos is only a fallback"), many)
+        self.assertEqual(requests, [["We're all scared.", "Hey, Bruce!"]])
+        self.assertEqual(drawn, ["“Todos estamos com medo.”", "Ei, Bruce!"])
+
+    def test_llm_failure_or_wrong_count_falls_back_to_argos(self):
+        argos = lambda text: f"pt:{text}"
+        self.assertEqual(app.translate_texts(["A", "B"], argos, lambda texts: 1 / 0), ["pt:A", "pt:B"])
+        reply = {"message": {"content": '{"translations": ["só uma"]}'}}
+        with patch.object(app, "llm_request", return_value=reply):
+            self.assertEqual(app.translate_texts(["A", "B"], argos, app.translate_with_llm), ["pt:A", "pt:B"])
+
+    def test_missing_llm_model_is_pulled_once_and_unreachable_ollama_means_argos(self):
+        calls = []
+
+        def request(path, payload, timeout):
+            calls.append(path)
+            return {"models": [{"name": "outro:latest"}]} if path == "/api/tags" else {}
+
+        with patch.object(app, "LLM_URL", "http://ollama:11434"), patch.object(app, "llm_request", request):
+            self.assertIs(app.load_llm(), app.translate_with_llm)
+        self.assertEqual(calls, ["/api/tags", "/api/pull"])
+        with patch.object(app, "LLM_URL", "http://ollama:11434"), \
+                patch.object(app, "llm_request", side_effect=OSError("recusado")):
+            self.assertIsNone(app.load_llm())
+        with patch.object(app, "LLM_URL", ""):
+            self.assertIsNone(app.load_llm())
 
 
 class EngineTest(unittest.TestCase):

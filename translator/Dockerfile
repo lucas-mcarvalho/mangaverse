@@ -6,8 +6,10 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && mkdir /models && chown translator:translator /models
 WORKDIR /app
 COPY requirements.txt .
-# torchvision must come from the CPU index too, or pip replaces torch with a multi-GB CUDA build.
-RUN pip install --no-cache-dir torch==2.6.0 torchvision==0.21.0 --index-url https://download.pytorch.org/whl/cpu
+# torchvision must come from the same index as torch, or pip replaces torch with a multi-GB CUDA build.
+# docker-compose.gpu.yml switches to the CUDA build (cu124) so text detection runs on the GPU.
+ARG TORCH_INDEX=cpu
+RUN pip install --no-cache-dir torch==2.6.0 torchvision==0.21.0 --index-url https://download.pytorch.org/whl/${TORCH_INDEX}
 RUN pip install --no-cache-dir -r requirements.txt
 COPY app.py .
 ENV XDG_DATA_HOME=/models XDG_CACHE_HOME=/models/cache \

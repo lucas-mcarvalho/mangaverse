@@ -53,12 +53,28 @@ services:
       OMP_NUM_THREADS: "4"
       # Minutos sem páginas até descarregar os modelos e devolver a memória (1 a 4 GB) ao sistema.
       TRANSLATOR_IDLE_MINUTES: "5"
+      # Tradução por LLM local (Ollama). Deixe TRANSLATOR_LLM_URL vazio para usar só o Argos.
+      TRANSLATOR_LLM_URL: ${TRANSLATOR_LLM_URL-http://ollama:11434}
+      TRANSLATOR_LLM_MODEL: ${TRANSLATOR_LLM_MODEL:-qwen3:4b-instruct}
+    depends_on:
+      - ollama
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8091/health', timeout=3)"]
       interval: 10s
       timeout: 5s
       start_period: 120s
       retries: 30
+
+  ollama:
+    image: ollama/ollama:0.40.10
+    restart: unless-stopped
+    volumes:
+      - ollama_models:/root/.ollama
+    # Somente rede interna; o modelo sai da memória 5 min após a última página.
+    environment:
+      OLLAMA_KEEP_ALIVE: "5m"
+      OLLAMA_MAX_LOADED_MODELS: "1"
+      OLLAMA_NUM_PARALLEL: "1"
 
   backend:
     build: ./backend
@@ -114,3 +130,4 @@ volumes:
   suwayomi_data:
   backend_data:
   translation_models:
+  ollama_models:

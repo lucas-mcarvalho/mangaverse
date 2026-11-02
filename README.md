@@ -366,8 +366,11 @@ Para refazer uma edição já traduzida (por exemplo, depois de uma atualizaçã
 apagadas e a preparação recomeça do zero; o arquivo original não é alterado.
 
 O serviço `translator` localiza o texto com o detector neural CRAFT (EasyOCR), agrupa as linhas por
-balão, lê cada balão ampliado com Tesseract e traduz com Argos Translate, sem chave de API e sem enviar
-imagens a serviços externos. Na primeira inicialização, ele baixa o detector e o modelo direto `en → pb`
+balão, lê cada balão ampliado com Tesseract e traduz com um LLM local servido pelo Ollama
+(padrão: `qwen3:4b-instruct`), sem chave de API e sem enviar imagens ou textos a serviços externos.
+Todos os balões de uma página vão juntos ao modelo, que vê a conversa inteira: isso mantém nomes,
+termos e tratamento consistentes, corrige parte dos erros de leitura pelo contexto e traduz gírias pelo
+sentido. Se o Ollama não responder, o tradutor usa o Argos Translate, mais fraco e sem contexto. Na primeira inicialização, ele baixa o detector e o modelo direto `en → pb`
 (português brasileiro, código usado pelo Argos) e os mantém no volume `translation_models`. A tradução
 é automática e pode errar nomes e contexto dos diálogos. O download inicial exige internet; com os
 modelos instalados, o processamento é local em CPU (cerca de 6 a 8 s por página com 4 núcleos).
@@ -381,6 +384,29 @@ e nenhuma CPU. A próxima página recarrega os modelos automaticamente em alguns
 ```bash
 docker compose up -d --build translator backend frontend
 docker compose logs -f translator
+```
+
+O modelo do LLM (cerca de 2,5 GB) é baixado no volume `ollama_models` na primeira inicialização.
+Para trocar de modelo, defina `TRANSLATOR_LLM_MODEL` no `.env` (por exemplo, `gemma3:4b`); para
+usar só o Argos, defina `TRANSLATOR_LLM_URL=` vazio. O Ollama também libera o modelo da memória
+após 5 minutos sem páginas.
+
+#### Tradução na GPU NVIDIA
+
+Na CPU, o LLM leva de 15 a 25 s por página. Com uma GPU NVIDIA (6 GB de memória de vídeo bastam), o
+LLM e a detecção de texto rodam nela e a página volta para alguns segundos. Instale o NVIDIA
+Container Toolkit uma vez no host (Arch Linux; em outras distribuições, veja a documentação da NVIDIA):
+
+```bash
+sudo pacman -S nvidia-container-toolkit
+sudo nvidia-ctk runtime configure --runtime=docker
+sudo systemctl restart docker
+```
+
+E suba o tradutor com o arquivo da GPU (a imagem com CUDA é maior, uns 6 GB):
+
+```bash
+docker compose -f docker-compose.yml -f docker-compose.gpu.yml up -d --build translator ollama
 ```
 
 Espere a mensagem **Tradutor local pronto** antes de preparar a primeira edição. O download do
