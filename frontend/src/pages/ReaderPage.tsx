@@ -6,6 +6,7 @@ import {
 import { useCallback, useEffect, useMemo, useRef, useState, type TouchEvent } from 'react'
 import { Link, useNavigate, useParams } from 'react-router'
 import { api, errorMessage } from '../api/client'
+import { saveSourcePreference } from '../lib/sourcePreference'
 import type { ReaderChapter } from '../api/types'
 import { ErrorState, PageLoader, Spinner } from '../components/ui'
 import { cx } from '../lib/format'
@@ -54,6 +55,9 @@ export default function ReaderPage() {
 }
 
 function Reader({ chapter }: { chapter: ReaderChapter }) {
+  useEffect(() => {
+    if (!chapter.local && chapter.providerCode) saveSourcePreference(chapter.contentId, chapter.providerCode)
+  }, [chapter.contentId, chapter.providerCode, chapter.local])
   const navigate = useNavigate()
   const [prefs, setPrefsState] = useState<Prefs>(() => loadPrefs(chapter.contentId, chapter))
   const [page, setPage] = useState(chapter.startPage)

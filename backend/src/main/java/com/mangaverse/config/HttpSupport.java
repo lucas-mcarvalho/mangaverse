@@ -33,9 +33,13 @@ public class HttpSupport {
     }
 
     public WebClient client(String baseUrl) {
+        return client(baseUrl, http.responseTimeout());
+    }
+
+    public WebClient client(String baseUrl, Duration responseTimeout) {
         HttpClient httpClient = HttpClient.create()
                 .option(ChannelOption.CONNECT_TIMEOUT_MILLIS, (int) http.connectTimeout().toMillis())
-                .responseTimeout(http.responseTimeout())
+                .responseTimeout(responseTimeout)
                 .followRedirect(true);
         WebClient.Builder b = builder.clone()
                 .clientConnector(new ReactorClientHttpConnector(httpClient))
@@ -57,13 +61,17 @@ public class HttpSupport {
     }
 
     public <T> T execute(String providerCode, Mono<T> call, int maxRetries) {
+        return execute(providerCode, call, maxRetries, http.responseTimeout());
+    }
+
+    public <T> T execute(String providerCode, Mono<T> call, int maxRetries, Duration responseTimeout) {
         try {
             return call
                     .retryWhen(Retry.backoff(maxRetries, Duration.ofMillis(500))
                             .maxBackoff(Duration.ofSeconds(8))
                             .filter(HttpSupport::isTransient)
                             .onRetryExhaustedThrow((spec, signal) -> signal.failure()))
-                    .block(http.responseTimeout().multipliedBy(maxRetries + 2L));
+                    .block(responseTimeout.multipliedBy(maxRetries + 2L));
         } catch (WebClientResponseException e) {
             throw new ProviderException(providerCode, describeStatus(e.getStatusCode()), e);
         } catch (WebClientRequestException e) {

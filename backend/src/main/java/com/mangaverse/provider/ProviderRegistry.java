@@ -69,9 +69,17 @@ public class ProviderRegistry {
      * fontes do tipo procurado têm preferência, e o excedente do limite de fontes do Suwayomi é informado.
      */
     public SearchPlan searchPlan(Set<ContentType> types) {
+        return searchPlan(types, Set.of());
+    }
+
+    /** Filtra as fontes solicitadas antes de aplicar o limite de consultas. */
+    public SearchPlan searchPlan(Set<ContentType> types, Set<String> providerCodes) {
         List<ContentProvider> out = new ArrayList<>();
         List<Provider> suwayomiCandidates = new ArrayList<>();
         for (Provider p : repository.findByEnabledTrueAndSupportsSearchTrueOrderByPriorityAsc()) {
+            if (providerCodes != null && !providerCodes.isEmpty() && !providerCodes.contains(p.getCode())) {
+                continue;
+            }
             if (p.getType() == ProviderType.SUWAYOMI_SOURCE) {
                 if (!suwayomi.enabled()) {
                     continue;

@@ -3,7 +3,7 @@ import { AlertTriangle, CheckCircle2, Clock, Search } from 'lucide-react'
 import { useEffect, useState, type FormEvent } from 'react'
 import { Link, useSearchParams } from 'react-router'
 import { api, errorMessage } from '../api/client'
-import type { AggregatedResult, ContentType, SearchResponse } from '../api/types'
+import type { AggregatedResult, ContentType, ProviderView, SearchResponse } from '../api/types'
 import { Badge, Cover, EmptyState, ErrorState, Spinner } from '../components/ui'
 import { cx, languageLabel, typeLabel } from '../lib/format'
 
@@ -14,30 +14,37 @@ export default function SearchPage() {
   const [params, setParams] = useSearchParams()
   const q = params.get('q') ?? ''
   const types = (params.get('tipos') ?? '').split(',').filter(Boolean) as ContentType[]
+  const provider = params.get('fonte') ?? ''
+  const providerFilter: Record<string, string> = provider ? { fonte: provider } : {}
   const [input, setInput] = useState(q)
   useEffect(() => setInput(q), [q])
 
+  const providers = useQuery({
+    queryKey: ['providers'],
+    queryFn: async () => (await api.get<ProviderView[]>('/providers')).data,
+  })
+
   const { data, isFetching, error, refetch } = useQuery({
-    queryKey: ['search', q, types.join(',')],
-    queryFn: async () => (await api.get<SearchResponse>('/search', { params: { q, types: types.join(',') || undefined } })).data,
+    queryKey: ['search', q, types.join(','), provider],
+    queryFn: async () => (await api.get<SearchResponse>('/search', { params: { q, types: types.join(',') || undefined, providers: provider || undefined } })).data,
     enabled: q.trim().length > 0,
     staleTime: 5 * 60_000,
   })
 
   const submit = (e: FormEvent) => {
     e.preventDefault()
-    if (input.trim()) setParams({ q: input.trim(), ...(types.length ? { tipos: types.join(',') } : {}) })
+    if (input.trim()) setParams({ q: input.trim(), ...(types.length ? { tipos: types.join(',') } : {}), ...providerFilter })
   }
   const toggleType = (t: ContentType) => {
     const next = types.includes(t) ? types.filter((x) => x !== t) : [...types, t]
-    setParams({ ...(q ? { q } : {}), ...(next.length ? { tipos: next.join(',') } : {}) })
+    setParams({ ...(q ? { q } : {}), ...(next.length ? { tipos: next.join(',') } : {}), ...providerFilter })
   }
 
   return (
     <div className="space-y-6">
       <div>
         <h1 className="text-2xl font-bold text-white">Pesquisa global</h1>
-        <p className="text-sm text-zinc-400">Consulta todas as fontes habilitadas ao mesmo tempo. Resultados com tradução em português aparecem primeiro.</p>
+        <p className="text-sm text-zinc-400">Pesquise nas fontes habilitadas ou escolha uma fonte específica. Resultados com tradução em português aparecem primeiro.</p>
       </div>
       <form onSubmit={submit} className="flex gap-2">
         <div className="relative flex-1">
@@ -47,6 +54,20 @@ export default function SearchPage() {
         <button className="btn-primary px-5">Pesquisar</button>
       </form>
       <div className="flex flex-wrap items-center gap-2">
+        <label className="flex items-center gap-2 text-sm text-zinc-400">Fonte
+          <select className="input w-auto" value={provider} onChange={(e) => setParams({
+            ...(q ? { q } : {}), ...(types.length ? { tipos: types.join(',') } : {}),
+            ...(e.target.value ? { fonte: e.target.value } : {}),
+          })}>
+            <option value="">Todas as fontes habilitadas</option>
+            {provider && !providers.data?.some((p) => p.code === provider && p.enabled && p.supportsSearch) && (
+              <option value={provider}>Fonte indisponível</option>
+            )}
+            {providers.data?.filter((p) => p.enabled && p.supportsSearch).map((p) => (
+              <option key={p.code} value={p.code}>{p.name}{p.language ? ` (${languageLabel(p.language)})` : ''}</option>
+            ))}
+          </select>
+        </label>
         {TYPES.map((t) => (
           <button key={t} className={cx('chip', types.includes(t) && 'chip-active')} onClick={() => toggleType(t)}>{typeLabel[t]}</button>
         ))}
@@ -55,7 +76,7 @@ export default function SearchPage() {
       {!q && (
         <div className="flex flex-wrap gap-2">
           <span className="text-sm text-zinc-500">Experimente:</span>
-          {EXAMPLES.map((e) => <button key={e} className="chip" onClick={() => setParams({ q: e })}>{e}</button>)}
+          {EXAMPLES.map((e) => <button key={e} className="chip" onClick={() => setParams({ q: e, ...(types.length ? { tipos: types.join(',') } : {}), ...providerFilter })}>{e}</button>)}
         </div>
       )}
 

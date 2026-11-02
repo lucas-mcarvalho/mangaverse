@@ -279,6 +279,15 @@ public class ReaderService {
         if (candidates.isEmpty()) {
             return null;
         }
+        // Mantém a fonte escolhida: idioma/grupo iguais não identificam o mesmo provedor.
+        if (current.getSource() != null) {
+            var sameSource = candidates.stream()
+                    .filter(c -> c.getSource() != null && Objects.equals(c.getSource().getId(), current.getSource().getId()))
+                    .findFirst();
+            if (sameSource.isPresent()) {
+                return sameSource.get().getId().toString();
+            }
+        }
         return candidates.stream()
                 .filter(c -> Objects.equals(c.getLanguage(), current.getLanguage()) && Objects.equals(c.getScanlator(), current.getScanlator()))
                 .findFirst()

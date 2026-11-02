@@ -6,7 +6,7 @@ automático de novos capítulos.
 
 - **Backend:** Java 21, Spring Boot 4.1 (Web MVC, Data JPA, Security, Validation, Cache, Scheduling), WebClient, Flyway, PostgreSQL
 - **Frontend:** React 19 + TypeScript, Vite, Tailwind CSS 4, React Router, TanStack Query, Axios, Lucide
-- **Infra:** Docker Compose com PostgreSQL, backend, frontend (nginx) e Suwayomi Server
+- **Infra:** Docker Compose com PostgreSQL, backend, frontend (nginx), Suwayomi Server e Byparr
 
 ![Dashboard do MangaVerse](docs/screenshots/dashboard.jpg)
 
@@ -323,7 +323,11 @@ idiomas preferidos (padrão `pt-br, en`) e classificação de conteúdo do Manga
    Em cada fonte dá para definir o **tipo** (Automático, Mangá, Manhwa, Manhua ou HQ). Extensões de HQ conhecidas,
    como o HQ Now!, já entram como HQ: os títulos aparecem no filtro "HQ", usam "Edição" e são baixados em `HQs/`.
 3. **Pesquisa global**: digite, por exemplo, *Solo Leveling* ou *Batman Absolute*. Cada resultado mostra
-   de quais fontes veio; resultados com tradução pt-BR aparecem primeiro.
+   de quais fontes veio; resultados com tradução pt-BR aparecem primeiro. No seletor **Fonte**, escolha
+   uma fonte habilitada para pesquisar apenas nela; também há um atalho de pesquisa na lista de fontes instaladas.
+   A seleção é aplicada antes do limite de fontes do Suwayomi, permitindo consultar uma fonte que ficaria
+   de fora da pesquisa global por prioridade. Para Read Comics Online e ComicHubFree, procure as extensões
+   no idioma **Inglês**, instale/atualize e confira se a fonte está habilitada e com o tipo **HQ**.
 4. Abra um título → **Adicionar à biblioteca** (ou *Adicionar e monitorar*).
 5. Na página do título: **Ler**, baixar capítulos individuais, por seleção, por volume ou *Baixar faltantes*.
 6. Ative **Monitorar novas edições** e, se quiser, **Baixar automaticamente** (exige também a opção
@@ -361,6 +365,42 @@ Endpoints usados (conferidos ao vivo): `GET /manga`, `GET /manga/{id}`, `GET /ma
 - A classificação de conteúdo padrão é *safe* + *suggestive* (ajustável em Configurações).
 
 ### Suwayomi + Keiyoushi
+
+#### ComicHubFree e Read Comics Online (en): Cloudflare
+
+O Compose inclui **Byparr**, serviço auxiliar compatível com FlareSolverr usado pelo Suwayomi
+quando uma fonte apresenta um desafio Cloudflare. Ele fica na rede interna do Docker, sem porta
+publicada no host. A integração vem habilitada; para desligá-la, defina
+`SUWAYOMI_FLARESOLVERR_ENABLED=false` no `.env`.
+
+Para aplicar a configuração a uma instalação existente, na pasta do projeto:
+
+```bash
+docker compose up -d byparr suwayomi
+docker compose up -d --build backend frontend
+```
+
+Em **Fontes e extensões**, filtre por **Inglês**, atualize ComicHubFree e Read Comics Online
+se houver atualização, sincronize as fontes e habilite ambas com o tipo **HQ**.
+Em **Pesquisa**, selecione uma fonte de cada vez e procure `Batman`.
+O primeiro acesso pode levar mais de um minuto; o backend permite até 100 segundos para buscas
+do Suwayomi, mantendo 25 segundos para os outros provedores.
+
+Se a busca continuar bloqueada, consulte:
+
+```bash
+docker compose logs --tail=100 byparr suwayomi
+```
+
+Uma mensagem de integração desativada indica que o contêiner do Suwayomi ainda não recebeu
+`FLARESOLVERR_ENABLED=true`. Erros de conexão com `byparr:8191` indicam que o serviço auxiliar
+não está pronto ou não está acessível. Desafios podem continuar falhando mesmo com a configuração
+correta; a inclusão do serviço não garante acesso a cada site.
+
+Referências: [Compose oficial do Suwayomi](https://github.com/Suwayomi/Suwayomi-Server-docker/blob/main/docker-compose.yml)
+e [variáveis do contêiner](https://github.com/Suwayomi/Suwayomi-Server-docker#environment-variables).
+
+#### Integração
 
 Detalhes em [`docs/suwayomi-schema.md`](docs/suwayomi-schema.md). O backend **não executa APKs**: ele só
 conversa com o Suwayomi via GraphQL. Fontes offline, removidas ou com erro não interrompem a pesquisa —
