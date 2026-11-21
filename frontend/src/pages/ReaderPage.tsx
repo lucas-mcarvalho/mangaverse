@@ -1,4 +1,4 @@
-import { useMutation, useQuery } from '@tanstack/react-query'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import {
   ArrowLeft, ChevronLeft, ChevronRight, Columns2, Maximize, Minimize, MoveHorizontal, Rows3, Settings2, Square,
   ZoomIn, ZoomOut,
@@ -15,17 +15,24 @@ import { TranslationControls, useTranslation } from '../components/TranslationCo
 type Mode = 'vertical' | 'single' | 'double'
 type Direction = 'ltr' | 'rtl'
 type Fit = 'width' | 'height' | 'original'
-interface Prefs { mode: Mode; direction: Direction; fit: Fit; zoom: number }
+type Bg = 'black' | 'gray' | 'white'
+interface Prefs { mode: Mode; direction: Direction; fit: Fit; zoom: number; bg: Bg; gap: boolean }
+
+const BG: Record<Bg, { label: string; className: string }> = {
+  black: { label: 'Preto', className: 'bg-black' },
+  gray: { label: 'Cinza', className: 'bg-ink-800' },
+  white: { label: 'Branco', className: 'bg-white' },
+}
 
 function loadPrefs(contentId: string, chapter: ReaderChapter): Prefs {
   try {
     const raw = localStorage.getItem(`reader:${contentId}`)
-    if (raw) return { zoom: 1, ...JSON.parse(raw) }
+    if (raw) return { zoom: 1, bg: 'black', gap: false, ...JSON.parse(raw) }
   } catch {
     // preferências indisponíveis: usa o padrão do tipo de conteúdo
   }
-  if (chapter.defaultMode === 'vertical') return { mode: 'vertical', direction: 'ltr', fit: 'width', zoom: 1 }
-  return { mode: 'single', direction: chapter.defaultMode === 'rtl' ? 'rtl' : 'ltr', fit: 'height', zoom: 1 }
+  if (chapter.defaultMode === 'vertical') return { mode: 'vertical', direction: 'ltr', fit: 'width', zoom: 1, bg: 'black', gap: false }
+  return { mode: 'single', direction: chapter.defaultMode === 'rtl' ? 'rtl' : 'ltr', fit: 'height', zoom: 1, bg: 'black', gap: false }
 }
 
 function savePrefs(contentId: string, prefs: Prefs) {
@@ -97,13 +104,55 @@ function Reader({ chapter }: { chapter: ReaderChapter }) {
     return () => clearTimeout(id)
   }, [page])
 
+  // Começa a ler sem a interface na frente (toque no centro mostra de novo)
+  useEffect(() => {
+    const id = setTimeout(() => { setUi(false); setSettingsOpen(false) }, 2500)
+    return () => clearTimeout(id)
+  }, [])
+
   // Pré-carrega as próximas páginas
   useEffect(() => {
-    for (let i = page + 1; i <= Math.min(total - 1, page + 3); i++) {
+    for (let i = page + 1; i <= Math.min(total - 1, page + 4); i++) {
       const img = new Image()
       img.src = displayPages[i]
     }
   }, [page, total, displayPages])
+
+  // Perto do fim, já busca o próximo capítulo e as primeiras páginas dele
+  const queryClient = useQueryClient()
+  useEffect(() => {
+    const next = chapter.nextChapterId
+    if (!next || page < total - 3) return
+    queryClient.fetchQuery({
+      queryKey: ['reader', next],
+      queryFn: async () => (await api.get<ReaderChapter>(`/reader/chapters/${next}`)).data,
+      staleTime: Infinity,
+    }).then((c) => c.pages.slice(0, 3).forEach((src) => { const img = new Image(); img.src = src }))
+      .catch(() => undefined)
+  }, [page, total, chapter.nextChapterId, queryClient])
+
+  // Modo vertical: chegar ao fim marca o capítulo como lido (no paginado isso acontece ao passar da última página)
+  const endRef = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    if (prefs.mode !== 'vertical' || !endRef.current) return
+    const observer = new IntersectionObserver((entries) => {
+      const visible = entries.some((e) => e.isIntersecting)
+      if (visible && !ended) {
+        saveRef.current({ page: total - 1, completed: true })
+        setEnded(true)
+      } else if (!visible && ended) {
+        setEnded(false) // voltou a rolar para cima
+      }
+    }, { threshold: 0.3 })
+    observer.observe(endRef.current)
+    return () => observer.disconnect()
+  }, [prefs.mode, total, ended])
+
+  /** Modo vertical: rola quase uma tela inteira (teclado e toque em cima/embaixo). */
+  const scrollScreen = useCallback((dir: 1 | -1) => {
+    const el = verticalRef.current
+    if (el) el.scrollBy({ top: dir * el.clientHeight * 0.85, behavior: 'smooth' })
+  }, [])
 
   const goNext = useCallback(() => {
     if (page + step >= total) {
@@ -149,8 +198,8 @@ function Reader({ chapter }: { chapter: ReaderChapter }) {
       switch (e.key) {
         case 'ArrowRight': e.preventDefault(); if (rtl) goPrev(); else goNext(); break
         case 'ArrowLeft': e.preventDefault(); if (rtl) goNext(); else goPrev(); break
-        case ' ': case 'PageDown': if (!vertical) { e.preventDefault(); goNext() } break
-        case 'PageUp': if (!vertical) { e.preventDefault(); goPrev() } break
+        case ' ': case 'PageDown': e.preventDefault(); if (vertical) scrollScreen(e.shiftKey ? -1 : 1); else goNext(); break
+        case 'PageUp': e.preventDefault(); if (vertical) scrollScreen(-1); else goPrev(); break
         case 'ArrowDown': if (!vertical) { e.preventDefault(); goNext() } break
         case 'ArrowUp': if (!vertical) { e.preventDefault(); goPrev() } break
         case 'f': case 'F': toggleFullscreen(); break
@@ -165,7 +214,7 @@ function Reader({ chapter }: { chapter: ReaderChapter }) {
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [prefs, rtl, goNext, goPrev, toggleFullscreen, chapter])
+  }, [prefs, rtl, goNext, goPrev, toggleFullscreen, chapter, scrollScreen])
 
   // Modo vertical: rola até a página inicial e acompanha a página visível
   useEffect(() => {
@@ -204,16 +253,31 @@ function Reader({ chapter }: { chapter: ReaderChapter }) {
     }
   }
 
-  /** Toque/clique: terço esquerdo/direito navega, centro mostra/oculta a interface. */
+  /**
+   * Toque/clique: no paginado, terço esquerdo/direito vira a página; no vertical, terço de cima/baixo rola a tela.
+   * O centro mostra/oculta a interface.
+   */
   const onZoneClick = (e: React.MouseEvent) => {
+    if (e.detail > 1) return // parte de um duplo clique (zoom)
+    if (settingsOpen) { setSettingsOpen(false); return }
+    if (prefs.mode === 'vertical') {
+      const y = e.clientY / window.innerHeight
+      if (y < 0.3) scrollScreen(-1)
+      else if (y > 0.7) scrollScreen(1)
+      else setUi((v) => !v)
+      return
+    }
     const x = e.clientX / window.innerWidth
-    if (prefs.mode === 'vertical' || (x > 0.33 && x < 0.67)) {
+    if (x > 0.33 && x < 0.67) {
       setUi((v) => !v)
       return
     }
     const leftSide = x <= 0.33
     if (leftSide === rtl) goNext(); else goPrev()
   }
+
+  /** Duplo clique/toque: aproxima (2×) ou volta ao tamanho normal. */
+  const onDoubleClick = () => setPrefs({ zoom: prefs.zoom > 1 ? 1 : 2 })
 
   const imgClass = useMemo(() => {
     if (prefs.fit === 'height') return 'max-h-[100dvh] w-auto'
@@ -225,20 +289,20 @@ function Reader({ chapter }: { chapter: ReaderChapter }) {
   const ordered = rtl ? [...pagesToShow].reverse() : pagesToShow
 
   return (
-    <div className="fixed inset-0 select-none bg-black text-zinc-100" onTouchStart={onTouchStart} onTouchEnd={onTouchEnd}>
+    <div className={cx('fixed inset-0 select-none text-zinc-100', BG[prefs.bg].className)} onTouchStart={onTouchStart} onTouchEnd={onTouchEnd}>
       {prefs.mode === 'vertical' ? (
-        <div ref={verticalRef} className="h-full overflow-y-auto" onClick={onZoneClick}>
-          <div className="mx-auto flex flex-col items-center" style={{ width: `min(100%, ${Math.round(900 * prefs.zoom)}px)` }}>
+        <div ref={verticalRef} className="h-full overflow-y-auto" onClick={onZoneClick} onDoubleClick={onDoubleClick}>
+          <div className={cx('mx-auto flex flex-col items-center', prefs.gap && 'gap-2')} style={{ width: `min(100%, ${Math.round(900 * prefs.zoom)}px)` }}>
             {displayPages.map((src, i) => (
               <div key={i} data-page={i} className="relative w-full" style={{ minHeight: '40vh' }}>
                 <PageImage key={src} src={src} alt={`Página ${i + 1}`} className="w-full" eager={Math.abs(i - chapter.startPage) < 3} />
               </div>
             ))}
-            <EndPanel chapter={chapter} inline />
+            <div ref={endRef} className="w-full"><EndPanel chapter={chapter} inline /></div>
           </div>
         </div>
       ) : (
-        <div className="h-full overflow-auto" onClick={onZoneClick}>
+        <div className="h-full overflow-auto" onClick={onZoneClick} onDoubleClick={onDoubleClick}>
           <div className="flex min-h-full min-w-full items-center justify-center" style={{ transform: `scale(${prefs.zoom})`, transformOrigin: 'top center' }}>
             {ended ? <EndPanel chapter={chapter} /> : ordered.map((i) => (
               <PageImage key={displayPages[i]} src={displayPages[i]} alt={`Página ${i + 1}`} eager
@@ -246,6 +310,13 @@ function Reader({ chapter }: { chapter: ReaderChapter }) {
             ))}
           </div>
         </div>
+      )}
+
+      {/* Número da página discreto com a interface escondida */}
+      {!ui && (
+        <span className="pointer-events-none absolute bottom-2 left-1/2 z-10 -translate-x-1/2 rounded-full bg-black/60 px-2.5 py-0.5 text-[11px] tabular-nums text-zinc-200">
+          {ended ? 'Fim' : `${Math.min(page + 1, total)} / ${total}`}
+        </span>
       )}
 
       {/* Barra superior */}
@@ -285,7 +356,19 @@ function Reader({ chapter }: { chapter: ReaderChapter }) {
                 <Seg active={prefs.fit === 'height'} onClick={() => setPrefs({ fit: 'height' })}>Altura</Seg>
                 <Seg active={prefs.fit === 'original'} onClick={() => setPrefs({ fit: 'original' })}>Original</Seg>
               </Option>
-              <p className="text-[11px] leading-relaxed text-zinc-500">Teclado: ← → navegar · F tela cheia · +/− zoom · N/P próximo/anterior capítulo · Esc sair</p>
+              <Option label="Fundo">
+                {(Object.keys(BG) as Bg[]).map((b) => <Seg key={b} active={prefs.bg === b} onClick={() => setPrefs({ bg: b })}>{BG[b].label}</Seg>)}
+              </Option>
+              {prefs.mode === 'vertical' && (
+                <Option label="Espaço entre páginas">
+                  <Seg active={!prefs.gap} onClick={() => setPrefs({ gap: false })}>Sem espaço</Seg>
+                  <Seg active={prefs.gap} onClick={() => setPrefs({ gap: true })}>Com espaço</Seg>
+                </Option>
+              )}
+              <p className="text-[11px] leading-relaxed text-zinc-500">
+                Teclado: ← → navegar · Espaço/PgDn avança uma tela · F tela cheia · +/− zoom · N/P próximo/anterior capítulo · Esc sair.
+                Toque: {prefs.mode === 'vertical' ? 'em cima/embaixo rola a tela' : 'nas laterais vira a página'}, no centro mostra os controles; duplo toque aproxima.
+              </p>
             </div>
           )}
         </div>
