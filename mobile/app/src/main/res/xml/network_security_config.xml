@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- o servidor MangaVerse costuma rodar em http na rede de casa (ex.: http://192.168.0.10:5180) -->
+<network-security-config>
+    <base-config cleartextTrafficPermitted="true" />
+</network-security-config>
