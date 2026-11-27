@@ -42,5 +42,15 @@ public interface ContentProvider {
         throw new ProviderException(code(), "Este provedor não oferece exploração.");
     }
 
+    /** Gêneros/categorias da fonte (vazio quando ela não oferece filtro de gênero). */
+    default List<Genre> genres() {
+        return List.of();
+    }
+
+    /** Títulos de um gênero de {@link #genres()}, mais populares primeiro quando a fonte permite. */
+    default List<RemoteTitle> byGenre(String genreId, int page) {
+        throw new ProviderException(code(), "Este provedor não oferece categorias.");
+    }
+
     ProviderHealth health();
 }

@@ -33,6 +33,7 @@ import com.mangaverse.provider.mangadex.MangaDexProvider;
 import com.mangaverse.provider.spi.ProviderHealth;
 import com.mangaverse.provider.suwayomi.SuwayomiClient;
 import com.mangaverse.provider.suwayomi.SuwayomiSourceProvider;
+import com.mangaverse.settings.SettingsService;
 
 import tools.jackson.databind.JsonNode;
 
@@ -50,6 +51,7 @@ public class SourceManagementService {
     private final ComicVineProvider comicVine;
     private final ProviderService providerService;
     private final CacheManager cacheManager;
+    private final SettingsService settings;
     /** Extensões de HQs ocidentais: entram como tipo HQ por padrão (o usuário pode mudar). */
     static final Set<String> COMIC_EXTENSIONS = Set.of("hqnow", "readcomicsonline", "xoxocomics", "comichubfree",
             "digitalcomicmuseum", "comicskingdom");
@@ -60,7 +62,7 @@ public class SourceManagementService {
 
     public SourceManagementService(ProviderRepository providers, ContentSourceRepository contentSources, ContentRepository contents,
                                    SuwayomiClient suwayomi, MangaDexProvider mangaDex, ComicVineProvider comicVine,
-                                   ProviderService providerService, CacheManager cacheManager) {
+                                   ProviderService providerService, CacheManager cacheManager, SettingsService settings) {
         this.providers = providers;
         this.contentSources = contentSources;
         this.contents = contents;
@@ -69,11 +71,12 @@ public class SourceManagementService {
         this.comicVine = comicVine;
         this.providerService = providerService;
         this.cacheManager = cacheManager;
+        this.settings = settings;
     }
 
     public record ExtensionView(String pkgName, String name, String lang, String versionName, String iconUrl,
                                 boolean installed, boolean hasUpdate, boolean obsolete, String contentWarning,
-                                String storeIndexUrl) {
+                                String storeIndexUrl, boolean adult) {
     }
 
     public record StoreView(String name, String indexUrl, String badgeLabel, boolean legacy) {
@@ -98,9 +101,11 @@ public class SourceManagementService {
         });
     }
 
+    /** Provedores cadastrados; as fontes +18 só aparecem com o modo +18 ligado. */
     @Transactional(readOnly = true)
     public List<Provider> listProviders() {
-        return providers.findAllByOrderByTypeAscPriorityAscNameAsc();
+        boolean adultMode = settings.adultMode();
+        return providers.findAllByOrderByTypeAscPriorityAscNameAsc().stream().filter(p -> adultMode || !p.isAdult()).toList();
     }
 
     @Transactional
@@ -209,6 +214,9 @@ public class SourceManagementService {
                 return created;
             });
             p.setName(Json.text(s, "name"));
+            p.setAdult(AdultContent.isAdult(Json.text(s, "name"), Json.text(s.path("extension"), "pkgName"), Json.text(s, "contentWarning"))
+                    || AdultContent.isAdultName(Json.text(s.path("extension"), "name")));
+            p.setSupportsLatest(!s.path("supportsLatest").isBoolean() || s.path("supportsLatest").asBoolean());
             p.setLanguage(lang);
             p.setExternalRef(id);
             p.setSupportsSearch(true);
@@ -247,7 +255,9 @@ public class SourceManagementService {
         List<ExtensionView> all = extensionCache.get("all", k -> loadExtensions());
         String q = query == null ? "" : query.toLowerCase(Locale.ROOT).trim();
         String l = lang == null || lang.isBlank() ? null : normalizeLang(lang);
+        boolean adultMode = settings.adultMode();
         return all.stream()
+                .filter(e -> adultMode || !e.adult()) // extensões +18 só com o modo +18 ligado
                 .filter(e -> l == null || l.equals(normalizeLang(e.lang())))
                 .filter(e -> installed == null || e.installed() == installed)
                 .filter(e -> q.isEmpty() || e.name().toLowerCase(Locale.ROOT).contains(q) || e.pkgName().contains(q))
@@ -266,6 +276,13 @@ public class SourceManagementService {
     public void changeExtension(String pkgName, String action) {
         if (pkgName == null || !pkgName.matches("[a-zA-Z0-9_.]{3,200}")) {
             throw ApiException.badRequest("Pacote inválido.");
+        }
+        if ("install".equals(action) && !settings.adultMode()) {
+            boolean adult = extensionCache.get("all", k -> loadExtensions()).stream()
+                    .anyMatch(e -> e.pkgName().equals(pkgName) && e.adult());
+            if (adult || AdultContent.isAdultName(pkgName.substring(pkgName.lastIndexOf('.') + 1))) {
+                throw ApiException.badRequest("Extensão +18: ligue o modo +18 em Configurações para instalar.");
+            }
         }
         Map<String, Object> patch = switch (action) {
             case "install" -> Map.of("install", true);
@@ -333,11 +350,14 @@ public class SourceManagementService {
         List<ExtensionView> out = new ArrayList<>();
         for (JsonNode e : Json.array(data.path("extensions"), "nodes")) {
             String icon = Json.text(e, "iconUrl");
-            out.add(new ExtensionView(Json.text(e, "pkgName"), Json.text(e, "name"), Json.text(e, "lang"),
+            String name = Json.text(e, "name");
+            String pkg = Json.text(e, "pkgName");
+            String warning = Json.text(e, "contentWarning");
+            out.add(new ExtensionView(pkg, name, Json.text(e, "lang"),
                     Json.text(e, "versionName"),
                     icon != null && icon.startsWith("/") ? SuwayomiSourceProvider.COVER_PREFIX + icon : icon,
                     Json.bool(e, "isInstalled"), Json.bool(e, "hasUpdate"), Json.bool(e, "isObsolete"),
-                    Json.text(e, "contentWarning"), Json.text(e, "storeIndexUrl")));
+                    warning, Json.text(e, "storeIndexUrl"), AdultContent.isAdult(name, pkg, warning)));
         }
         return out;
     }

@@ -16,6 +16,12 @@ public interface ContentSourceRepository extends JpaRepository<ContentSource, UU
 
     boolean existsByProviderId(UUID providerId);
 
+    /** Títulos que só existem em fontes +18 (escondidos com o modo +18 desligado). */
+    @Query("""
+            select distinct cs.content.id from ContentSource cs where cs.provider.adult = true
+              and not exists (select 1 from ContentSource o where o.content.id = cs.content.id and o.provider.adult = false)""")
+    List<UUID> findAdultOnlyContentIds();
+
     @Query("select cs from ContentSource cs join fetch cs.content where cs.provider.id = :providerId")
     List<ContentSource> findByProviderId(UUID providerId);
 }

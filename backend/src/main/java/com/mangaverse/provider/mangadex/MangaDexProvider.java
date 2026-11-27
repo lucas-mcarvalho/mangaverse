@@ -30,6 +30,7 @@ import com.mangaverse.provider.spi.ContentProvider;
 import com.mangaverse.provider.spi.ContentType;
 import com.mangaverse.provider.spi.DiscoverKind;
 import com.mangaverse.provider.spi.FetchedImage;
+import com.mangaverse.provider.spi.Genre;
 import com.mangaverse.provider.spi.PageRef;
 import com.mangaverse.provider.spi.ProviderCapabilities;
 import com.mangaverse.provider.spi.ProviderException;
@@ -121,6 +122,43 @@ public class MangaDexProvider implements ContentProvider {
                     .queryParam(kind == DiscoverKind.POPULAR ? "order[followedCount]" : "order[latestUploadedChapter]", "desc");
             contentRatings.forEach(r -> b.queryParam("contentRating[]", r));
             languages.forEach(l -> b.queryParam("availableTranslatedLanguage[]", l));
+            return b.build();
+        });
+        return Json.array(body, "data").stream().map(this::toRemoteTitle).toList();
+    }
+
+    private volatile List<Genre> genreCache;
+
+    /** Tags do grupo "genre" da MangaDex (a lista muda raramente: fica em memória). */
+    @Override
+    public List<Genre> genres() {
+        List<Genre> cached = genreCache;
+        if (cached != null) {
+            return cached;
+        }
+        JsonNode body = get(b -> b.path("/manga/tag").build());
+        List<Genre> list = Json.array(body, "data").stream()
+                .filter(t -> "genre".equals(Json.text(t.path("attributes"), "group")))
+                .map(t -> new Genre(Json.text(t, "id"), Json.text(t.path("attributes").path("name"), "en")))
+                .filter(g -> g.id() != null && g.name() != null)
+                .sorted(java.util.Comparator.comparing(Genre::name))
+                .toList();
+        genreCache = list;
+        return list;
+    }
+
+    @Override
+    public List<RemoteTitle> byGenre(String genreId, int page) {
+        requireUuid(genreId);
+        int limit = 24;
+        JsonNode body = get(b -> {
+            b.path("/manga")
+                    .queryParam("limit", limit)
+                    .queryParam("offset", Math.max(0, page - 1) * limit)
+                    .queryParam("includes[]", "cover_art")
+                    .queryParam("includedTags[]", genreId)
+                    .queryParam("order[followedCount]", "desc");
+            contentRatings.forEach(r -> b.queryParam("contentRating[]", r));
             return b.build();
         });
         return Json.array(body, "data").stream().map(this::toRemoteTitle).toList();

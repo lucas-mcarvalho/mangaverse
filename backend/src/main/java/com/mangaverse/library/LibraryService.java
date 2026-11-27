@@ -15,6 +15,8 @@ import com.mangaverse.content.ChapterRepository;
 import com.mangaverse.content.Content;
 import com.mangaverse.content.ContentRepository;
 import com.mangaverse.content.ContentService;
+import com.mangaverse.content.ContentSourceRepository;
+import com.mangaverse.settings.SettingsService;
 import com.mangaverse.content.Covers;
 import com.mangaverse.download.DownloadRepository;
 import com.mangaverse.provider.spi.ContentType;
@@ -32,10 +34,14 @@ public class LibraryService {
     private final ChapterRepository chapters;
     private final ReadingProgressRepository progress;
     private final DownloadRepository downloads;
+    private final ContentSourceRepository contentSources;
+    private final SettingsService settings;
 
     public LibraryService(LibraryEntryRepository entries, CategoryRepository categories, ContentRepository contents,
                           ContentService contentService, ChapterRepository chapters, ReadingProgressRepository progress,
-                          DownloadRepository downloads) {
+                          DownloadRepository downloads, ContentSourceRepository contentSources, SettingsService settings) {
+        this.contentSources = contentSources;
+        this.settings = settings;
         this.entries = entries;
         this.categories = categories;
         this.contents = contents;
@@ -61,7 +67,10 @@ public class LibraryService {
     public List<LibraryViews.LibraryItem> list(AppUser user, Filter filter) {
         List<LibraryEntry> all = entries.findAllForUser(user.getId());
         String q = filter.query() == null ? "" : TextNormalizer.normalizeTitle(filter.query());
+        // com o modo +18 desligado, títulos que só existem em fontes +18 não aparecem (nem no Dashboard)
+        java.util.Set<UUID> hidden = settings.adultMode() ? java.util.Set.of() : java.util.Set.copyOf(contentSources.findAdultOnlyContentIds());
         List<LibraryEntry> filtered = all.stream()
+                .filter(e -> !hidden.contains(e.getContent().getId()))
                 .filter(e -> filter.type() == null || e.getContent().getType() == filter.type())
                 .filter(e -> filter.status() == null || e.getStatus() == filter.status())
                 .filter(e -> filter.favorite() == null || e.isFavorite() == filter.favorite())

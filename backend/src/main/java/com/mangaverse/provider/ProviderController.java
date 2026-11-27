@@ -34,12 +34,12 @@ public class ProviderController {
     public record ProviderView(String id, String code, String name, String type, boolean enabled, int priority,
                                String language, String iconUrl, boolean supportsSearch, boolean supportsDownload,
                                boolean metadataOnly, String lastStatus, String lastError, Instant lastCheckedAt,
-                               String defaultContentType) {
+                               String defaultContentType, boolean adult) {
         static ProviderView of(Provider p) {
             return new ProviderView(p.getId().toString(), p.getCode(), p.getName(), p.getType().name(), p.isEnabled(),
                     p.getPriority(), p.getLanguage(), p.getIconUrl(), p.isSupportsSearch(), p.isSupportsDownload(),
                     p.isMetadataOnly(), p.getLastStatus(), p.getLastError(), p.getLastCheckedAt(),
-                    p.getDefaultContentType());
+                    p.getDefaultContentType(), p.isAdult());
         }
     }
 
@@ -68,7 +68,8 @@ public class ProviderController {
 
     @PostMapping("/sources/suwayomi/sync")
     public List<ProviderView> sync() {
-        return service.syncSuwayomiSources().stream().map(ProviderView::of).toList();
+        service.syncSuwayomiSources();
+        return service.listProviders().stream().filter(p -> p.getType() == ProviderType.SUWAYOMI_SOURCE).map(ProviderView::of).toList();
     }
 
     @GetMapping("/sources/suwayomi/extensions")

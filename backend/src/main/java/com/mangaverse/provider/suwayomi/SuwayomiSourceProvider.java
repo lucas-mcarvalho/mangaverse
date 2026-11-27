@@ -15,6 +15,7 @@ import com.mangaverse.provider.spi.ContentProvider;
 import com.mangaverse.provider.spi.ContentType;
 import com.mangaverse.provider.spi.DiscoverKind;
 import com.mangaverse.provider.spi.FetchedImage;
+import com.mangaverse.provider.spi.Genre;
 import com.mangaverse.provider.spi.PageRef;
 import com.mangaverse.provider.spi.ProviderCapabilities;
 import com.mangaverse.provider.spi.ProviderException;
@@ -87,9 +88,36 @@ public class SuwayomiSourceProvider implements ContentProvider {
         return fetchSource(kind == DiscoverKind.POPULAR ? "POPULAR" : "LATEST", null, Math.max(1, page));
     }
 
+    @Override
+    public List<Genre> genres() {
+        SuwayomiGenres.Found found = SuwayomiGenres.find(client.sourceFilters(sourceId));
+        return found == null ? List.of() : found.genres();
+    }
+
+    @Override
+    public List<RemoteTitle> byGenre(String genreId, int page) {
+        SuwayomiGenres.Found found = SuwayomiGenres.find(client.sourceFilters(sourceId));
+        int index;
+        try {
+            index = Integer.parseInt(genreId);
+        } catch (NumberFormatException e) {
+            throw new ProviderException(code(), "Categoria inválida.");
+        }
+        if (found == null || found.genres().stream().noneMatch(g -> g.id().equals(genreId))) {
+            throw new ProviderException(code(), "Esta fonte não tem essa categoria.");
+        }
+        JsonNode data = client.execute(SuwayomiClient.M_SEARCH_FILTERED,
+                Map.of("source", sourceId, "page", Math.max(1, page), "filters", List.of(SuwayomiGenres.change(found, index))));
+        return toTitles(data);
+    }
+
     private List<RemoteTitle> fetchSource(String type, String query, int page) {
         JsonNode data = client.execute(SuwayomiClient.M_SEARCH,
                 Map.of("source", sourceId, "query", query == null ? "" : query, "page", page, "type", type));
+        return toTitles(data);
+    }
+
+    private List<RemoteTitle> toTitles(JsonNode data) {
         List<RemoteTitle> out = new ArrayList<>();
         for (JsonNode m : Json.array(data.path("fetchSourceManga"), "mangas")) {
             out.add(new RemoteTitle(code(), displayName(), Json.text(m, "id"), Json.text(m, "title"), List.of(),

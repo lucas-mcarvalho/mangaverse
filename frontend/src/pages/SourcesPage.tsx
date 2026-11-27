@@ -8,6 +8,7 @@ import { useToast } from '../components/Toast'
 import { Badge, Cover, EmptyState, ErrorState, PageLoader, SectionTitle, Spinner, Toggle } from '../components/ui'
 import { cx, languageLabel, timeAgo } from '../lib/format'
 import { BrazilianComicsSources } from '../components/BrazilianComicsSources'
+import { useAdultMode } from '../hooks/useAdultMode'
 
 const KEIYOUSHI = 'https://raw.githubusercontent.com/keiyoushi/extensions/repo/index.min.json'
 
@@ -50,8 +51,37 @@ export default function SourcesPage() {
   if (providers.isLoading) return <PageLoader />
   if (providers.error) return <ErrorState message={errorMessage(providers.error)} onRetry={providers.refetch} />
   const main = providers.data!.filter((p) => p.type !== 'SUWAYOMI_SOURCE')
-  const sources = providers.data!.filter((p) => p.type === 'SUWAYOMI_SOURCE')
+  const allSources = providers.data!.filter((p) => p.type === 'SUWAYOMI_SOURCE')
     .sort((a, b) => Number(b.language === 'pt-br') - Number(a.language === 'pt-br') || a.priority - b.priority)
+  // fontes +18 só chegam com o modo +18 ligado, e ficam numa lista à parte
+  const sources = allSources.filter((p) => !p.adult)
+  const adultSources = allSources.filter((p) => p.adult)
+  const sourceRow = (p: ProviderView) => (
+    <div key={p.id} className="flex items-center gap-3 px-4 py-2.5">
+      <Cover src={p.iconUrl} alt={p.name} className="h-8 w-8 shrink-0 rounded" />
+      <div className="min-w-0 flex-1">
+        <p className="flex items-center gap-2 truncate text-sm font-medium">{p.name}{p.defaultContentType === 'COMIC' && <Badge tone="blue">HQ</Badge>}{p.adult && <Badge tone="red">18+</Badge>}</p>
+        <p className="text-xs text-zinc-500">{languageLabel(p.language)}{p.lastError ? ` · ${p.lastError}` : ''}</p>
+      </div>
+      <label className="flex items-center gap-1.5 text-xs text-zinc-400" title="Como os títulos desta fonte são classificados">Tipo
+        <select className="input w-auto px-2 py-1 text-xs" value={p.defaultContentType ?? 'AUTO'}
+          onChange={(e) => update.mutate({ id: p.id, defaultContentType: e.target.value })}>
+          <option value="AUTO">Automático</option><option value="MANGA">Mangá</option><option value="MANHWA">Manhwa</option>
+          <option value="MANHUA">Manhua</option><option value="COMIC">HQ</option>
+        </select>
+      </label>
+      <label className="flex items-center gap-1.5 text-xs text-zinc-400">Prioridade
+        <input type="number" className="input w-16 px-2 py-1 text-xs" defaultValue={p.priority} min={0} max={1000}
+          onBlur={(e) => Number(e.target.value) !== p.priority && update.mutate({ id: p.id, priority: Number(e.target.value) })} />
+      </label>
+      {p.enabled && p.supportsSearch && (
+        <Link className="btn-ghost px-2 py-1.5" to={`/pesquisa?fonte=${encodeURIComponent(p.code)}`} title={`Pesquisar em ${p.name}`} aria-label={`Pesquisar em ${p.name}`}>
+          <Search className="h-4 w-4" />
+        </Link>
+      )}
+      <Toggle checked={p.enabled} onChange={(v) => update.mutate({ id: p.id, enabled: v })} />
+    </div>
+  )
 
   return (
     <div className="space-y-10">
@@ -110,36 +140,15 @@ export default function SourcesPage() {
           {sources.length === 0 ? (
             <EmptyState title="Nenhuma fonte do Suwayomi" description="Adicione um repositório, instale extensões abaixo e clique em Sincronizar fontes." />
           ) : (
-            <div className="card divide-y divide-ink-700">
-              {sources.map((p) => (
-                <div key={p.id} className="flex items-center gap-3 px-4 py-2.5">
-                  <Cover src={p.iconUrl} alt={p.name} className="h-8 w-8 shrink-0 rounded" />
-                  <div className="min-w-0 flex-1">
-                    <p className="flex items-center gap-2 truncate text-sm font-medium">{p.name}{p.defaultContentType === 'COMIC' && <Badge tone="blue">HQ</Badge>}</p>
-                    <p className="text-xs text-zinc-500">{languageLabel(p.language)}{p.lastError ? ` · ${p.lastError}` : ''}</p>
-                  </div>
-                  <label className="flex items-center gap-1.5 text-xs text-zinc-400" title="Como os títulos desta fonte são classificados">Tipo
-                    <select className="input w-auto px-2 py-1 text-xs" value={p.defaultContentType ?? 'AUTO'}
-                      onChange={(e) => update.mutate({ id: p.id, defaultContentType: e.target.value })}>
-                      <option value="AUTO">Automático</option><option value="MANGA">Mangá</option><option value="MANHWA">Manhwa</option>
-                      <option value="MANHUA">Manhua</option><option value="COMIC">HQ</option>
-                    </select>
-                  </label>
-                  <label className="flex items-center gap-1.5 text-xs text-zinc-400">Prioridade
-                    <input type="number" className="input w-16 px-2 py-1 text-xs" defaultValue={p.priority} min={0} max={1000}
-                      onBlur={(e) => Number(e.target.value) !== p.priority && update.mutate({ id: p.id, priority: Number(e.target.value) })} />
-                  </label>
-                  {p.enabled && p.supportsSearch && (
-                    <Link className="btn-ghost px-2 py-1.5" to={`/pesquisa?fonte=${encodeURIComponent(p.code)}`} title={`Pesquisar em ${p.name}`} aria-label={`Pesquisar em ${p.name}`}>
-                      <Search className="h-4 w-4" />
-                    </Link>
-                  )}
-                  <Toggle checked={p.enabled} onChange={(v) => update.mutate({ id: p.id, enabled: v })} />
-                </div>
-              ))}
-            </div>
+            <div className="card divide-y divide-ink-700">{sources.map(sourceRow)}</div>
           )}
         </div>
+        {adultSources.length > 0 && (
+          <div>
+            <h3 className="mb-2 flex items-center gap-2 text-sm font-semibold text-zinc-300">Fontes +18 ({adultSources.length}) <Badge tone="red">conteúdo adulto</Badge></h3>
+            <div className="card divide-y divide-ink-700 border-pink-500/20">{adultSources.map(sourceRow)}</div>
+          </div>
+        )}
         {suwayomi.data?.online && <Extensions />}
       </section>
     </div>
@@ -192,6 +201,9 @@ function Extensions() {
   const [installed, setInstalled] = useState<'all' | 'yes' | 'no'>('all')
   const [q, setQ] = useState('')
   const [busy, setBusy] = useState<string | null>(null)
+  const { adultMode } = useAdultMode()
+  const [tab, setTab] = useState<'regular' | 'adult'>('regular')
+  const showAdult = adultMode && tab === 'adult'
   const { data, isLoading, error, refetch } = useQuery({
     queryKey: ['extensions', lang, installed],
     queryFn: async () => (await api.get<ExtensionView[]>('/sources/suwayomi/extensions', {
@@ -215,12 +227,21 @@ function Extensions() {
     onError: (e) => toast.error(errorMessage(e)),
     onSettled: () => setBusy(null),
   })
-  const list = (data ?? []).filter((e) => !q || e.name.toLowerCase().includes(q.toLowerCase()))
+  const list = (data ?? []).filter((e) => (!q || e.name.toLowerCase().includes(q.toLowerCase())) && e.adult === showAdult)
+  const adultCount = (data ?? []).filter((e) => e.adult).length
 
   return (
     <div className="space-y-3">
       <div className="flex flex-wrap items-center gap-2">
-        <h3 className="mr-auto text-sm font-semibold text-zinc-300">Extensões disponíveis</h3>
+        <h3 className="text-sm font-semibold text-zinc-300">Extensões disponíveis</h3>
+        {adultMode ? (
+          <div className="mr-auto flex rounded-lg bg-ink-800 p-0.5 text-xs">
+            <button className={cx('rounded-md px-2.5 py-1', tab === 'regular' ? 'bg-ink-600 text-white' : 'text-zinc-400')} onClick={() => setTab('regular')}>Comuns</button>
+            <button className={cx('rounded-md px-2.5 py-1', tab === 'adult' ? 'bg-pink-500/20 text-pink-300' : 'text-zinc-400')} onClick={() => setTab('adult')}>+18{adultCount ? ` (${adultCount})` : ''}</button>
+          </div>
+        ) : (
+          <span className="mr-auto text-xs text-zinc-500">Extensões +18 ficam escondidas (<Link to="/configuracoes" className="text-accent-400 hover:underline">modo +18</Link> desligado).</span>
+        )}
         <div className="relative">
           <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-zinc-500" />
           <input className="input w-48 py-1.5 pl-8 text-xs" placeholder="Filtrar" value={q} onChange={(e) => setQ(e.target.value)} />
@@ -244,7 +265,7 @@ function Extensions() {
               <Cover src={e.iconUrl} alt={e.name} className="h-8 w-8 shrink-0 rounded" />
               <div className="min-w-0 flex-1">
                 <p className="flex items-center gap-2 truncate text-sm font-medium">{e.name}
-                  {e.contentWarning === 'NSFW' && <Badge tone="red">18+</Badge>}
+                  {e.adult && <Badge tone="red">18+</Badge>}
                   {e.obsolete && <Badge tone="amber">Obsoleta</Badge>}
                 </p>
                 <p className="text-xs text-zinc-500">{e.lang} · v{e.versionName}</p>

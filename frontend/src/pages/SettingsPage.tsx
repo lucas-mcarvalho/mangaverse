@@ -3,11 +3,13 @@ import { Cpu, FolderOpen, Radar, Save } from 'lucide-react'
 import { useEffect, useState, type ReactNode } from 'react'
 import { api, errorMessage } from '../api/client'
 import type { MonitorStatus, Settings } from '../api/types'
+import { AdultModeToggle } from '../components/AdultModeToggle'
 import { DirectoryPicker } from '../components/DirectoryPicker'
 import { useToast } from '../components/Toast'
 import { Badge, ErrorState, PageLoader, Spinner, Toggle } from '../components/ui'
 import { cx, timeAgo } from '../lib/format'
 
+const ADULT_RATINGS = ['erotica', 'pornographic']
 const RATINGS = [
   { id: 'safe', label: 'Livre' }, { id: 'suggestive', label: 'Sugestivo' }, { id: 'erotica', label: 'Erótico' }, { id: 'pornographic', label: 'Adulto' },
 ]
@@ -86,6 +88,10 @@ export default function SettingsPage() {
         </div>
       </Section>
 
+      <Section title="Conteúdo +18" description="Separa completamente o conteúdo adulto do resto do MangaVerse. A mudança vale na hora, sem precisar salvar.">
+        <AdultModeToggle />
+      </Section>
+
       <Section title="Idiomas e conteúdo">
         <label className="block space-y-1.5 text-sm">
           <span>Idiomas de tradução (em ordem de prioridade)</span>
@@ -96,10 +102,14 @@ export default function SettingsPage() {
           <span>Classificação de conteúdo (MangaDex)</span>
           <div className="flex flex-wrap gap-2">
             {RATINGS.map((r) => {
-              const on = form.contentRatings.includes(r.id)
-              return <button key={r.id} className={cx('chip', on && 'chip-active')} onClick={() => set({ contentRatings: on ? form.contentRatings.filter((x) => x !== r.id) : [...form.contentRatings, r.id] })}>{r.label}</button>
+              const locked = !data?.adultMode && ADULT_RATINGS.includes(r.id)
+              const on = form.contentRatings.includes(r.id) && !locked
+              return <button key={r.id} disabled={locked} title={locked ? 'Ligue o modo +18 para usar' : undefined}
+                className={cx('chip', on && 'chip-active', locked && 'cursor-not-allowed opacity-40')}
+                onClick={() => set({ contentRatings: on ? form.contentRatings.filter((x) => x !== r.id) : [...form.contentRatings, r.id] })}>{r.label}</button>
             })}
           </div>
+          {!data?.adultMode && <span className="text-xs text-zinc-500">Erótico e Adulto só valem com o modo +18 ligado.</span>}
         </div>
       </Section>
 

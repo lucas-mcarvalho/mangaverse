@@ -115,13 +115,13 @@ export interface ProviderView {
   id: string; code: string; name: string; type: 'MANGADEX' | 'COMICVINE' | 'SUWAYOMI_SOURCE' | 'LOCAL'
   enabled: boolean; priority: number; language: string | null; iconUrl: string | null; supportsSearch: boolean
   supportsDownload: boolean; metadataOnly: boolean; lastStatus: string; lastError: string | null
-  lastCheckedAt: string | null; defaultContentType: 'AUTO' | ContentType | null
+  lastCheckedAt: string | null; defaultContentType: 'AUTO' | ContentType | null; adult: boolean
 }
 
 export interface SuwayomiStatus { enabled: boolean; online: boolean; baseUrl: string; version: string | null; message: string; defaultStore: string }
 export interface ExtensionView {
   pkgName: string; name: string; lang: string; versionName: string; iconUrl: string | null; installed: boolean
-  hasUpdate: boolean; obsolete: boolean; contentWarning: string | null; storeIndexUrl: string | null
+  hasUpdate: boolean; obsolete: boolean; contentWarning: string | null; storeIndexUrl: string | null; adult: boolean
 }
 export interface StoreView { name: string; indexUrl: string; badgeLabel: string; legacy: boolean }
 
@@ -130,7 +130,14 @@ export interface Settings {
   monitorEnabled: boolean; monitorIntervalMinutes: number; monitorLastRunAt: string | null; languages: string[]
   contentRatings: string[]; allowedRoots: string[]; cbrSupported: boolean; cbrTool: string | null
   comicVineConfigured: boolean; suwayomiUrl: string; translationThreads: number; availableCpus: number
+  /** Modo +18: fontes e extensões de conteúdo adulto aparecem. Desligado por padrão. */
+  adultMode: boolean
 }
+
+export interface CatalogSource { code: string; name: string; language: string | null; iconUrl: string | null; supportsLatest: boolean; type: string; adult: boolean }
+export interface Genre { id: string; name: string }
+export type CatalogKind = 'POPULAR' | 'LATEST' | 'GENRE'
+export interface CatalogListing { provider: string; kind: CatalogKind; genre: string | null; page: number; items: RemoteTitle[]; hasNextPage: boolean }
 
 export interface DirectoryListing { path: string | null; parent: string | null; directories: string[]; roots: string[]; freeBytes: number | null }
 

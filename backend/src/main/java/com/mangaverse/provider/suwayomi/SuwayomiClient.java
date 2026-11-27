@@ -75,6 +75,18 @@ public class SuwayomiClient {
               fetchSourceManga(input: {source: $source, type: $type, query: $query, page: $page}) {
                 hasNextPage mangas { %s } } }""".formatted(MANGA_FIELDS);
 
+    public static final String M_SEARCH_FILTERED = """
+            mutation($source: LongString!, $page: Int!, $filters: [FilterChangeInput!]) {
+              fetchSourceManga(input: {source: $source, type: SEARCH, query: "", page: $page, filters: $filters}) {
+                hasNextPage mangas { %s } } }""".formatted(MANGA_FIELDS);
+
+    /** Filtros da busca de uma fonte (usados para achar os gêneros). Conferido no schema v2.4.2366. */
+    public static final String Q_SOURCE_FILTERS = """
+            query($id: LongString!) { source(id: $id) { filters { __typename
+              ... on CheckBoxFilter { name } ... on TriStateFilter { name } ... on SelectFilter { name values }
+              ... on TextFilter { name } ... on HeaderFilter { name } ... on SortFilter { name }
+              ... on GroupFilter { name filters { __typename ... on CheckBoxFilter { name } ... on TriStateFilter { name } } } } } }""";
+
     public static final String M_FETCH_MANGA_AND_CHAPTERS = """
             mutation($id: Int!) { fetchMangaAndChapters(input: {id: $id, fetchManga: true, fetchChapters: true}) {
               manga { %s source { id name lang } }
@@ -91,6 +103,9 @@ public class SuwayomiClient {
     private final WebClient client;
     private final RateLimiter limiter;
     Duration cloudflareRetryDelay = Duration.ofSeconds(10);
+    /** Filtros por fonte: algumas extensões só preenchem os gêneros depois da primeira listagem, então dura pouco. */
+    private final com.github.benmanes.caffeine.cache.Cache<String, JsonNode> filterCache =
+            com.github.benmanes.caffeine.cache.Caffeine.newBuilder().expireAfterWrite(Duration.ofMinutes(10)).maximumSize(200).build();
 
     public SuwayomiClient(AppProperties.Suwayomi config, HttpSupport http) {
         this(config, http, http.client(config.baseUrl(), REQUEST_TIMEOUT));
@@ -242,6 +257,11 @@ public class SuwayomiClient {
             execute(M_FETCH_MANGA, Map.of("id", Integer.parseInt(m.group(1))), true);
             return fetchBinary(path);
         }
+    }
+
+    /** Lista de filtros da busca de uma fonte. */
+    public JsonNode sourceFilters(String sourceId) {
+        return filterCache.get(sourceId, id -> execute(Q_SOURCE_FILTERS, Map.of("id", id)).path("source").path("filters"));
     }
 
     private void authorize(HttpHeaders headers) {
