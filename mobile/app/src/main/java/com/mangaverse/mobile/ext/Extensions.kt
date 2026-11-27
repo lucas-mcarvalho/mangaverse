@@ -40,12 +40,20 @@ data class RepoSource(val id: Long, val name: String, val lang: String)
 data class RepoExtension(
     val name: String, val pkg: String, val apkUrl: String, val iconUrl: String?, val versionCode: Long, val versionName: String,
     val nsfw: Boolean, val lang: String, val sources: List<RepoSource>, val signingKey: String?,
+    /** Aviso "NSFW" do formato novo do repositório: só extensões adultas (as comuns com algum título +18 vêm como "MIXED"). */
+    val strictNsfw: Boolean = false,
 )
 
-/** Extensão instalada no app (o APK fica em `files/exts`). */
+/** Extensão só de conteúdo adulto (hentai etc.). */
+val RepoExtension.adult: Boolean get() = strictNsfw || ExtensionManager.isAdult(name, pkg)
+
+/**
+ * Extensão instalada no app. As comuns ficam em `files/exts`; as só de conteúdo adulto ficam à parte, em
+ * `files/exts-adult`, e só são carregadas com o modo +18 ligado.
+ */
 data class InstalledExtension(
     val pkg: String, val name: String, val versionCode: Long, val versionName: String, val lang: String, val nsfw: Boolean,
-    val sources: List<Source>, val error: String?,
+    val sources: List<Source>, val error: String?, val adult: Boolean = false,
 )
 
 const val KEIYOUSHI_REPO = "https://raw.githubusercontent.com/keiyoushi/extensions/repo/index.json"
@@ -59,6 +67,8 @@ class ExtensionManager(private val context: Context, private val network: Networ
 
     private val prefs = context.getSharedPreferences("extensions", Context.MODE_PRIVATE)
     private val dir = File(context.filesDir, "exts").apply { mkdirs() }
+    /** Extensões +18 ficam separadas das outras e só são lidas com o modo +18 ligado. */
+    private val adultDir = File(context.filesDir, "exts-adult").apply { mkdirs() }
     private val repoCache = File(context.filesDir, "repo-cache.json")
     private val lock = Mutex()
 
@@ -81,20 +91,31 @@ class ExtensionManager(private val context: Context, private val network: Networ
     private val _settings = MutableStateFlow(readSettings())
     val settings: StateFlow<ExtSettings> = _settings
 
-    data class ExtSettings(val repos: List<String>, val langs: Set<String>, val nsfw: Boolean)
+    /**
+     * [adultMode]: extensões +18 (hentai etc.) aparecem e funcionam. Vem desligado; o usuário precisa ligar de propósito
+     * (com confirmação de idade). Desligado, elas não são carregadas e somem de todas as telas.
+     */
+    data class ExtSettings(val repos: List<String>, val langs: Set<String>, val adultMode: Boolean)
 
-    private fun readSettings() = ExtSettings(
-        repos = prefs.getString("repos", null)?.split('\n')?.filter { it.isNotBlank() } ?: listOf(KEIYOUSHI_REPO),
-        langs = prefs.getStringSet("langs", null) ?: setOf("pt-BR", "all", "en"),
-        nsfw = prefs.getBoolean("nsfw", true),
-    )
+    private fun readSettings(): ExtSettings {
+        // a chave antiga "nsfw" vinha ligada por padrão; o modo +18 novo começa desligado para todo mundo
+        if (prefs.contains("nsfw")) prefs.edit().remove("nsfw").apply()
+        return ExtSettings(
+            repos = prefs.getString("repos", null)?.split('\n')?.filter { it.isNotBlank() } ?: listOf(KEIYOUSHI_REPO),
+            langs = prefs.getStringSet("langs", null) ?: setOf("pt-BR", "all", "en"),
+            adultMode = prefs.getBoolean("adult_mode", false),
+        )
+    }
 
     fun updateSettings(s: ExtSettings) {
-        prefs.edit().putString("repos", s.repos.joinToString("\n")).putStringSet("langs", s.langs).putBoolean("nsfw", s.nsfw).apply()
-        val reposChanged = s.repos != _settings.value.repos
+        prefs.edit().putString("repos", s.repos.joinToString("\n")).putStringSet("langs", s.langs).putBoolean("adult_mode", s.adultMode).apply()
+        val old = _settings.value
         _settings.value = s
-        if (reposChanged) scope.launch { refreshRepo() }
+        if (s.repos != old.repos) scope.launch { refreshRepo() }
+        if (s.adultMode != old.adultMode) scope.launch(Dispatchers.IO) { if (s.adultMode) loadAdult() else unloadAdult() }
     }
+
+    val adultMode: Boolean get() = _settings.value.adultMode
 
     fun init() {
         scope.launch(Dispatchers.IO) {
@@ -107,8 +128,9 @@ class ExtensionManager(private val context: Context, private val network: Networ
 
     // ---------------- fontes ----------------
 
-    /** Todas as fontes de catálogo das extensões instaladas. */
-    fun allSources(): List<CatalogueSource> = _installed.value.flatMap { it.sources }.filterIsInstance<CatalogueSource>()
+    /** Todas as fontes de catálogo das extensões carregadas (as +18 só entram com o modo +18 ligado). */
+    fun allSources(): List<CatalogueSource> =
+        _installed.value.filter { adultMode || !it.adult }.flatMap { it.sources }.filterIsInstance<CatalogueSource>()
 
     /** Fontes nos idiomas escolhidos (extensões "all" como MangaDex criam uma fonte por idioma). */
     fun visibleSources(): List<CatalogueSource> {
@@ -124,10 +146,31 @@ class ExtensionManager(private val context: Context, private val network: Networ
         ?: _available.value.firstNotNullOfOrNull { e -> e.sources.firstOrNull { it.id == id }?.name }
         ?: "Fonte $id"
 
-    /** Extensão do repositório que contém a fonte (para sugerir a instalação). */
-    fun extensionForSource(id: Long): RepoExtension? = _available.value.firstOrNull { e -> e.sources.any { it.id == id } }
+    /** Extensão do repositório que contém a fonte (para sugerir a instalação). Com o modo +18 desligado, nunca uma +18. */
+    fun extensionForSource(id: Long): RepoExtension? =
+        _available.value.firstOrNull { e -> e.sources.any { it.id == id } }?.takeIf { adultMode || !it.adult }
 
-    fun updatesCount(): Int = _installed.value.count { i -> _available.value.any { it.pkg == i.pkg && it.versionCode > i.versionCode } }
+    /** Ids de todas as fontes de extensões +18 conhecidas (instaladas, já instaladas antes ou no repositório). */
+    fun adultSourceIds(): Set<Long> = buildSet {
+        addAll(prefs.getStringSet("adult_sources", emptySet()).orEmpty().mapNotNull { it.toLongOrNull() })
+        _installed.value.filter { it.adult }.forEach { e -> e.sources.forEach { add(it.id) } }
+        _available.value.filter { it.adult }.forEach { e -> e.sources.forEach { add(it.id) } }
+    }
+
+    /** Fontes que devem sumir da biblioteca, do histórico etc. (vazio com o modo +18 ligado). */
+    fun hiddenSourceIds(): Set<Long> = if (adultMode) emptySet() else adultSourceIds()
+
+    private fun rememberAdultSources(ext: InstalledExtension) {
+        if (!ext.adult || ext.sources.isEmpty()) return
+        val known = prefs.getStringSet("adult_sources", emptySet()).orEmpty()
+        val ids = ext.sources.map { it.id.toString() }
+        if (!known.containsAll(ids)) prefs.edit().putStringSet("adult_sources", known + ids).apply()
+    }
+
+    /** Quantas extensões +18 estão instaladas (mesmo com o modo desligado, quando não aparecem). */
+    fun adultInstalledCount(): Int = adultDir.listFiles { f -> f.isFile && f.extension == "ext" }?.size ?: 0
+
+    fun updatesCount(): Int = _installed.value.filter { adultMode || !it.adult }.count { i -> _available.value.any { it.pkg == i.pkg && it.versionCode > i.versionCode } }
 
     // ---------------- repositório ----------------
 
@@ -221,6 +264,7 @@ class ExtensionManager(private val context: Context, private val network: Networ
                     iconUrl = res.optString("iconUrl").ifBlank { null }, versionCode = o.optString("versionCode").toLongOrNull() ?: 0,
                     versionName = o.optString("versionName"), nsfw = o.optString("contentWarning") == "CONTENT_WARNING_NSFW", // "MIXED" (ex.: MangaDex) não conta como adulta
                     lang = if (langs.size == 1) langs.first() else "all", sources = sources, signingKey = key,
+                    strictNsfw = o.optString("contentWarning") == "CONTENT_WARNING_NSFW",
                 )
             }
         }
@@ -230,6 +274,7 @@ class ExtensionManager(private val context: Context, private val network: Networ
 
     /** Baixa, confere a assinatura e carrega a extensão. Lança exceção com mensagem legível em caso de erro. */
     suspend fun install(ext: RepoExtension, onProgress: (Float) -> Unit = {}) = withContext(Dispatchers.IO) {
+        check(adultMode || !ext.adult) { "Extensão +18: ligue o modo +18 nos ajustes das extensões para instalar" }
         val tmp = File(context.cacheDir, "${ext.pkg}.apk")
         try {
             network.client.newCall(GET(ext.apkUrl)).awaitSuccess().use { res ->
@@ -256,15 +301,15 @@ class ExtensionManager(private val context: Context, private val network: Networ
             if (ext.signingKey != null) check(ext.signingKey in sigs) { "Assinatura diferente da do repositório — instalação recusada" }
 
             lock.withLock {
-                val target = File(dir, "${ext.pkg}.ext")
-                // Android 14+ exige que o código carregado seja somente leitura
-                if (target.exists()) {
-                    target.setWritable(true)
-                    target.delete()
-                }
+                val adult = ext.adult || isAdultPackage(info, ext.name)
+                check(adultMode || !adult) { "Extensão +18: ligue o modo +18 nos ajustes das extensões para instalar" }
+                deleteFiles(ext.pkg)
+                val target = File(if (adult) adultDir else dir, "${ext.pkg}.ext")
                 tmp.copyTo(target, overwrite = true)
+                // Android 14+ exige que o código carregado seja somente leitura
                 target.setReadOnly()
-                val loaded = loadFile(target)
+                val loaded = loadFile(target, adult)
+                rememberAdultSources(loaded)
                 _installed.value = (_installed.value.filter { it.pkg != ext.pkg } + loaded).sortedBy { it.name.lowercase() }
                 loaded.error?.let { error("Instalada, mas não carregou: $it") }
             }
@@ -274,16 +319,58 @@ class ExtensionManager(private val context: Context, private val network: Networ
     }
 
     fun uninstall(pkg: String) {
-        File(dir, "$pkg.ext").apply { setWritable(true) }.delete()
+        deleteFiles(pkg)
         _installed.value = _installed.value.filter { it.pkg != pkg }
+    }
+
+    /** Apaga todas as extensões +18 instaladas (carregadas ou não). */
+    fun uninstallAllAdult() {
+        scope.launch(Dispatchers.IO) {
+            lock.withLock {
+                adultDir.listFiles().orEmpty().forEach { it.setWritable(true); it.delete() }
+                _installed.value = _installed.value.filter { !it.adult }
+            }
+        }
+    }
+
+    private fun deleteFiles(pkg: String) {
+        listOf(dir, adultDir).forEach { d -> File(d, "$pkg.ext").takeIf { it.exists() }?.apply { setWritable(true) }?.delete() }
     }
 
     // ---------------- carregamento ----------------
 
+    private fun extFiles(d: File) = d.listFiles { f -> f.isFile && f.extension == "ext" }.orEmpty().toList()
+
     private suspend fun loadInstalled() = lock.withLock {
-        val files = dir.listFiles { f -> f.isFile && f.extension == "ext" }.orEmpty()
-        val loaded = withContext(Dispatchers.IO) { files.map { async { loadFile(it) } }.awaitAll() }
+        separateAdult()
+        val files = extFiles(dir).map { it to false } + (if (adultMode) extFiles(adultDir).map { it to true } else emptyList())
+        val loaded = withContext(Dispatchers.IO) { files.map { (f, adult) -> async { loadFile(f, adult) } }.awaitAll() }
+        loaded.forEach(::rememberAdultSources)
         _installed.value = loaded.sortedBy { it.name.lowercase() }
+    }
+
+    /** Move para `exts-adult` as extensões +18 instaladas antes da separação (só lê o manifesto, não carrega código). */
+    private fun separateAdult() {
+        if (prefs.getBoolean("adult_separated", false)) return
+        for (f in extFiles(dir)) {
+            val info = runCatching { archiveInfo(f) }.getOrNull()
+            val adult = if (info == null) isAdult("", f.nameWithoutExtension) else isAdultPackage(info, null)
+            if (adult) {
+                val target = File(adultDir, f.name)
+                if (!f.renameTo(target)) Log.w(TAG, "Não consegui mover ${f.name} para exts-adult")
+            }
+        }
+        prefs.edit().putBoolean("adult_separated", true).apply()
+    }
+
+    private suspend fun loadAdult() = lock.withLock {
+        val loaded = extFiles(adultDir).map { loadFile(it, true) }
+        loaded.forEach(::rememberAdultSources)
+        _installed.value = (_installed.value.filter { !it.adult } + loaded).sortedBy { it.name.lowercase() }
+    }
+
+    private suspend fun unloadAdult() = lock.withLock {
+        _installed.value = _installed.value.filter { !it.adult }
     }
 
     private fun archiveInfo(file: File): PackageInfo? {
@@ -299,13 +386,13 @@ class ExtensionManager(private val context: Context, private val network: Networ
         }
     }
 
-    private fun loadFile(file: File): InstalledExtension {
+    private fun loadFile(file: File, adult: Boolean): InstalledExtension {
         val fallbackPkg = file.nameWithoutExtension
         val info = try {
             archiveInfo(file)
         } catch (e: Exception) {
             null
-        } ?: return InstalledExtension(fallbackPkg, fallbackPkg, 0, "?", "", false, emptyList(), "APK inválido")
+        } ?: return InstalledExtension(fallbackPkg, fallbackPkg, 0, "?", "", false, emptyList(), "APK inválido", adult)
 
         val app = info.applicationInfo
         val meta = app?.metaData
@@ -315,7 +402,7 @@ class ExtensionManager(private val context: Context, private val network: Networ
         val versionName = info.versionName.orEmpty()
         val nsfw = meta?.let { if (it.containsKey("tachiyomix.contentWarning")) it.getInt("tachiyomix.contentWarning") == 2 else it.getInt("tachiyomi.extension.nsfw") == 1 } ?: false
 
-        fun failed(reason: String) = InstalledExtension(info.packageName, name, versionCode, versionName, "", nsfw, emptyList(), reason)
+        fun failed(reason: String) = InstalledExtension(info.packageName, name, versionCode, versionName, "", nsfw, emptyList(), reason, adult)
 
         if (app == null || meta == null) return failed("APK sem metadados")
         val lib = meta.getFloat("tachiyomix.extensionLib").takeUnless { it == 0f }?.toString()?.toDouble()
@@ -336,13 +423,23 @@ class ExtensionManager(private val context: Context, private val network: Networ
                 }
             val langs = sources.map { it.lang }.toSet()
             InstalledExtension(
-                info.packageName, name, versionCode, versionName, if (langs.size == 1) langs.first() else "all", nsfw, sources, null,
+                info.packageName, name, versionCode, versionName, if (langs.size == 1) langs.first() else "all", nsfw, sources, null, adult,
             )
         } catch (e: Throwable) {
             Log.e(TAG, "Falha ao carregar ${info.packageName}", e)
             val root = generateSequence(e) { it.cause }.last()
             failed(listOfNotNull(root.javaClass.simpleName, root.message).joinToString(": "))
         }
+    }
+
+    /** Extensão adulta pelo manifesto: aviso de conteúdo NSFW (formato novo) ou nome/pacote. */
+    private fun isAdultPackage(info: PackageInfo, fallbackName: String?): Boolean {
+        val meta = info.applicationInfo?.metaData
+        val strict = meta?.containsKey("tachiyomix.contentWarning") == true && meta.getInt("tachiyomix.contentWarning") == 2
+        val name = meta?.getString("tachiyomix.name")
+            ?: info.applicationInfo?.let { context.packageManager.getApplicationLabel(it).toString() }
+            ?: fallbackName.orEmpty()
+        return strict || isAdult(name, info.packageName)
     }
 
     private fun isExtension(info: PackageInfo) = info.reqFeatures.orEmpty().any { it.name == "tachiyomi.extension" }
@@ -379,8 +476,9 @@ class ExtensionManager(private val context: Context, private val network: Networ
         )
 
         /**
-         * Extensão só de conteúdo adulto (vai para a aba +18). O selo "nsfw" do repositório não basta: ele marca também
-         * fontes comuns que têm algum título adulto (Mugiwaras, Manga Livre, MangaDex…).
+         * Extensão só de conteúdo adulto pelo nome/pacote (fica separada, na aba +18, e só funciona com o modo +18 ligado).
+         * Soma-se ao aviso "NSFW" do formato novo do repositório; o selo "nsfw" do formato antigo não basta, porque marca
+         * também fontes comuns com algum título adulto (Mugiwaras, Manga Livre, MangaDex…).
          */
         fun isAdult(name: String, pkg: String): Boolean = ADULT.containsMatchIn(name) || ADULT.containsMatchIn(pkg.substringAfterLast('.'))
 

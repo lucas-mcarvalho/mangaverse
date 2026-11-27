@@ -37,6 +37,7 @@ import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.Explore
 import androidx.compose.material.icons.filled.Extension
 import androidx.compose.material.icons.filled.History
+import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.LocalLibrary
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Search
@@ -83,12 +84,13 @@ import kotlinx.coroutines.launch
 import java.text.DateFormat
 import java.util.Date
 
-private enum class Tab(val label: String) { LIBRARY("Biblioteca"), HISTORY("Histórico"), BROWSE("Explorar"), EXTENSIONS("Extensões") }
+private enum class Tab(val label: String) { HOME("Início"), SEARCH("Pesquisar"), LIBRARY("Biblioteca"), HISTORY("Histórico"), BROWSE("Explorar") }
 
 @Composable
 fun HomeScreen() {
     val app = LocalContext.current.app
-    var tab by rememberSaveable { mutableStateOf(Tab.LIBRARY) }
+    val nav = LocalNav.current
+    var tab by rememberSaveable { mutableStateOf(Tab.HOME) }
     val installed by app.extensions.installed.collectAsState()
     val available by app.extensions.available.collectAsState()
     val updates = remember(installed, available) { app.extensions.updatesCount() }
@@ -101,13 +103,14 @@ fun HomeScreen() {
                     NavigationBarItem(
                         selected = tab == t, onClick = { tab = t }, label = { Text(t.label, fontSize = 11.sp) },
                         icon = {
-                            BadgedBox(badge = { if (t == Tab.EXTENSIONS && updates > 0) Badge { Text("$updates") } }) {
+                            BadgedBox(badge = { if (t == Tab.BROWSE && updates > 0) Badge { Text("$updates") } }) {
                                 Icon(
                                     when (t) {
+                                        Tab.HOME -> Icons.Default.Home
+                                        Tab.SEARCH -> Icons.Default.Search
                                         Tab.LIBRARY -> Icons.Default.LocalLibrary
                                         Tab.HISTORY -> Icons.Default.History
                                         Tab.BROWSE -> Icons.Default.Explore
-                                        Tab.EXTENSIONS -> Icons.Default.Extension
                                     },
                                     null,
                                 )
@@ -120,10 +123,11 @@ fun HomeScreen() {
     ) { pad ->
         Box(Modifier.padding(bottom = pad.calculateBottomPadding())) {
             when (tab) {
+                Tab.HOME -> CatalogHomeTab(openSearch = { tab = Tab.SEARCH }, goToExtensions = { nav.extensions() })
+                Tab.SEARCH -> GlobalSearchScreen("", inTab = true, goToExtensions = { nav.extensions() })
                 Tab.LIBRARY -> LibraryTab(queue.size)
                 Tab.HISTORY -> HistoryTab()
-                Tab.BROWSE -> BrowseTab(goToExtensions = { tab = Tab.EXTENSIONS })
-                Tab.EXTENSIONS -> ExtensionsTab()
+                Tab.BROWSE -> BrowseTab(updates)
             }
         }
     }
@@ -145,7 +149,11 @@ private fun LibraryTab(queueSize: Int) {
     val nav = LocalNav.current
     val scope = rememberCoroutineScope()
     val snackbar = remember { SnackbarHostState() }
-    val items = rememberQuery { app.db.library() }
+    val installed by app.extensions.installed.collectAsState()
+    val settings by app.extensions.settings.collectAsState()
+    // com o modo +18 desligado, títulos de fontes +18 não aparecem
+    val hidden = remember(installed, settings) { app.extensions.hiddenSourceIds() }
+    val items = rememberQuery(hidden) { app.db.library().filter { it.manga.source !in hidden } }
     var filter by rememberSaveable { mutableStateOf("") }
     var searching by rememberSaveable { mutableStateOf(false) }
     var sort by rememberSaveable { mutableStateOf(LibrarySort.LAST_READ) }
@@ -199,7 +207,7 @@ private fun LibraryTab(queueSize: Int) {
                 list == null -> Unit
                 list.isEmpty() -> EmptyState(
                     "Sua biblioteca está vazia",
-                    "Instale extensões na aba Extensões, procure títulos no Explorar e toque em “Adicionar à biblioteca”.",
+                    "Procure títulos no Início ou na Pesquisa e toque em “Adicionar à biblioteca”.",
                 )
                 else -> {
                     Row(Modifier.horizontalScroll(rememberScrollState()).padding(horizontal = 12.dp, vertical = 4.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -243,7 +251,10 @@ private fun HistoryTab() {
     val app = LocalContext.current.app
     val nav = LocalNav.current
     val scope = rememberCoroutineScope()
-    val items = rememberQuery { app.db.history() }
+    val installed by app.extensions.installed.collectAsState()
+    val settings by app.extensions.settings.collectAsState()
+    val hidden = remember(installed, settings) { app.extensions.hiddenSourceIds() }
+    val items = rememberQuery(hidden) { app.db.history().filter { it.manga.source !in hidden } }
     // continuar: o capítulo pela metade, ou o seguinte se o último lido já terminou
     fun resume(h: HistoryItem) = scope.launch {
         if (!h.chapter.read) { nav.read(h.chapter.id); return@launch }
@@ -339,36 +350,25 @@ private fun HistoryRow(h: HistoryItem, onOpen: () -> Unit, onResume: () -> Unit,
 }
 
 @Composable
-private fun BrowseTab(goToExtensions: () -> Unit) {
+private fun BrowseTab(updates: Int) {
     val app = LocalContext.current.app
     val nav = LocalNav.current
     val installed by app.extensions.installed.collectAsState()
     val settings by app.extensions.settings.collectAsState()
     val ready by app.extensions.ready.collectAsState()
     val sources = remember(installed, settings) { app.extensions.visibleSources() }
-    var query by rememberSaveable { mutableStateOf("") }
+    val goToExtensions = { nav.extensions() }
 
     Column(Modifier.fillMaxSize()) {
-        TopAppBar(title = { Text("Explorar", fontWeight = FontWeight.Bold) }, colors = TopAppBarDefaults.topAppBarColors(containerColor = Canvas))
-        OutlinedTextField(
-            query, { query = it }, singleLine = true, placeholder = { Text("Pesquisar em todas as fontes") },
-            leadingIcon = { Icon(Icons.Default.Search, null) },
-            trailingIcon = {
-                if (query.isNotEmpty()) Row {
-                    IconButton({ query = "" }) { Icon(Icons.Default.Close, "Limpar") }
-                    if (query.isNotBlank()) IconButton({ nav.search(query.trim()) }) { Icon(Icons.AutoMirrored.Filled.ArrowForward, "Pesquisar") }
+        TopAppBar(
+            title = { Text("Explorar fontes", fontWeight = FontWeight.Bold) },
+            actions = {
+                IconButton(goToExtensions) {
+                    BadgedBox(badge = { if (updates > 0) Badge { Text("$updates") } }) { Icon(Icons.Default.Extension, "Extensões") }
                 }
             },
-            keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
-            keyboardActions = KeyboardActions(onSearch = { if (query.isNotBlank()) nav.search(query.trim()) }),
-            modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp),
+            colors = TopAppBarDefaults.topAppBarColors(containerColor = Canvas),
         )
-        // em quais fontes a pesquisa procura (o mesmo filtro da tela de resultados)
-        val ctx = LocalContext.current
-        val searchPrefs = remember { SearchSourcePrefs(ctx) }
-        var chosen by remember { mutableStateOf(searchPrefs.selected) }
-        if (sources.isNotEmpty()) SearchSourcesChip(sources, chosen, { chosen = it; searchPrefs.selected = it }, Modifier.padding(horizontal = 16.dp, vertical = 4.dp))
-        Spacer(Modifier.height(4.dp))
         when {
             !ready -> Unit
             sources.isEmpty() -> EmptyState(
