@@ -11,12 +11,15 @@ import java.util.Locale;
 import java.util.Set;
 
 import org.springframework.boot.context.event.ApplicationReadyEvent;
+import org.springframework.cache.Cache;
+import org.springframework.cache.CacheManager;
 import org.springframework.context.event.EventListener;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import com.mangaverse.common.ApiException;
 import com.mangaverse.config.AppProperties;
+import com.mangaverse.config.CacheConfig;
 import com.mangaverse.provider.mangadex.MangaDexProvider;
 import com.mangaverse.storage.PathGuard;
 import com.mangaverse.storage.archive.ArchiveService;
@@ -35,6 +38,8 @@ public class SettingsService {
     static final String LANGUAGES = "search.languages";
     static final String CONTENT_RATINGS = "mangadex.contentRatings";
     static final String TRANSLATION_THREADS = "translation.threads";
+    static final String ADULT_MODE = "content.adultMode";
+    private static final Set<String> NON_ADULT_RATINGS = Set.of("safe", "suggestive");
 
     public static final int MIN_MONITOR_INTERVAL = 30;
 
@@ -43,14 +48,16 @@ public class SettingsService {
     private final PathGuard pathGuard;
     private final MangaDexProvider mangaDex;
     private final ArchiveService archiveService;
+    private final CacheManager cacheManager;
 
     public SettingsService(AppSettingRepository repository, AppProperties properties, PathGuard pathGuard,
-                           MangaDexProvider mangaDex, ArchiveService archiveService) {
+                           MangaDexProvider mangaDex, ArchiveService archiveService, CacheManager cacheManager) {
         this.repository = repository;
         this.properties = properties;
         this.pathGuard = pathGuard;
         this.mangaDex = mangaDex;
         this.archiveService = archiveService;
+        this.cacheManager = cacheManager;
     }
 
     public record SettingsView(String mangaLibraryPath, String comicLibraryPath, int maxConcurrentDownloads,
@@ -58,17 +65,18 @@ public class SettingsService {
                                Instant monitorLastRunAt, List<String> languages, List<String> contentRatings,
                                List<String> allowedRoots, boolean cbrSupported, String cbrTool,
                                boolean comicVineConfigured, String suwayomiUrl, int translationThreads,
-                               int availableCpus) {
+                               int availableCpus, boolean adultMode) {
     }
 
     public record SettingsUpdate(String mangaLibraryPath, String comicLibraryPath, Integer maxConcurrentDownloads,
                                  Boolean autoDownloadEnabled, Boolean monitorEnabled, Integer monitorIntervalMinutes,
-                                 List<String> languages, List<String> contentRatings, Integer translationThreads) {
+                                 List<String> languages, List<String> contentRatings, Integer translationThreads,
+                                 Boolean adultMode) {
     }
 
     @EventListener(ApplicationReadyEvent.class)
     public void applyRuntimeSettings() {
-        mangaDex.setContentRatings(contentRatings());
+        mangaDex.setContentRatings(effectiveContentRatings());
     }
 
     @Transactional(readOnly = true)
@@ -78,7 +86,7 @@ public class SettingsService {
                 contentRatings(), pathGuard.roots().stream().map(Path::toString).toList(),
                 archiveService.cbrSupported(), archiveService.cbrTool(),
                 properties.providers().comicvine().configured(), properties.providers().suwayomi().baseUrl(),
-                translationThreads(), availableCpus());
+                translationThreads(), availableCpus(), adultMode());
     }
 
     @Transactional
@@ -120,8 +128,12 @@ public class SettingsService {
                 throw ApiException.badRequest("Classificações inválidas.");
             }
             put(CONTENT_RATINGS, String.join(",", ratings));
-            mangaDex.setContentRatings(ratings);
         }
+        if (u.adultMode() != null && u.adultMode() != adultMode()) {
+            put(ADULT_MODE, String.valueOf(u.adultMode()));
+            clearDiscoveryCaches(); // pesquisas e listagens guardadas podem ter (ou não ter) fontes +18
+        }
+        mangaDex.setContentRatings(effectiveContentRatings());
         if (u.translationThreads() != null) {
             if (u.translationThreads() < 1 || u.translationThreads() > availableCpus()) {
                 throw ApiException.badRequest("Núcleos para tradução deve estar entre 1 e " + availableCpus() + ".");
@@ -183,6 +195,33 @@ public class SettingsService {
 
     public List<String> contentRatings() {
         return cleanList(Arrays.asList(get(CONTENT_RATINGS, "safe,suggestive").split(",")));
+    }
+
+    /**
+     * Modo +18: fontes e extensões só de conteúdo adulto aparecem e funcionam. Desligado por padrão; desligado, elas
+     * somem da pesquisa, do Explorar, da biblioteca e da lista de extensões, e a MangaDex fica em Livre/Sugestivo.
+     */
+    public boolean adultMode() {
+        return Boolean.parseBoolean(get(ADULT_MODE, "false"));
+    }
+
+    /** Classificações da MangaDex que valem de fato: sem Erótico/Adulto enquanto o modo +18 estiver desligado. */
+    public List<String> effectiveContentRatings() {
+        List<String> ratings = contentRatings();
+        if (adultMode()) {
+            return ratings;
+        }
+        List<String> safe = ratings.stream().filter(NON_ADULT_RATINGS::contains).toList();
+        return safe.isEmpty() ? List.of("safe") : safe;
+    }
+
+    private void clearDiscoveryCaches() {
+        for (String name : List.of(CacheConfig.SEARCH, CacheConfig.DISCOVER)) {
+            Cache cache = cacheManager.getCache(name);
+            if (cache != null) {
+                cache.clear();
+            }
+        }
     }
 
     public String preferredLanguage() {

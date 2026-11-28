@@ -44,6 +44,9 @@ public class Provider {
     private String lastError;
     private Instant lastCheckedAt;
     private String defaultContentType;
+    /** Fonte só de conteúdo adulto: escondida com o modo +18 desligado. */
+    private boolean adult;
+    private boolean supportsLatest = true;
     private Instant createdAt;
     private Instant updatedAt;
 
@@ -94,6 +97,10 @@ public class Provider {
     public Instant getLastCheckedAt() { return lastCheckedAt; }
     public String getDefaultContentType() { return defaultContentType; }
     public void setDefaultContentType(String defaultContentType) { this.defaultContentType = defaultContentType; }
+    public boolean isAdult() { return adult || AdultContent.isAdultName(name); }
+    public void setAdult(boolean adult) { this.adult = adult; }
+    public boolean isSupportsLatest() { return supportsLatest; }
+    public void setSupportsLatest(boolean supportsLatest) { this.supportsLatest = supportsLatest; }
 
     /** Tipo imposto pelo usuário (ou pelo padrão conhecido da extensão); vazio = deduzir pelos gêneros. */
     public java.util.Optional<com.mangaverse.provider.spi.ContentType> forcedType() {

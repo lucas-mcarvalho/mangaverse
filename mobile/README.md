@@ -12,8 +12,38 @@ downloads no próprio celular.
    cp app/build/outputs/apk/release/app-release.apk dist/MangaVerse.apk
    ```
 2. Copie o APK para o celular e instale (permita "instalar apps desconhecidos"). Android 8.0 ou mais novo.
-3. No app, abra **Extensões → Disponíveis** e instale as fontes que você usa (ex.: Manga Livre.to, Mugiwaras Oficial,
-   HQ Now!, MangaDex).
+3. No app, abra **Explorar → ícone de extensões → Disponíveis** e instale as fontes que você usa (ex.: Manga Livre.to,
+   Mugiwaras Oficial, HQ Now!, MangaDex).
+
+## Atualização automática
+
+O app procura versões novas nas **Releases do GitHub** do projeto (`lucas-mcarvalho/mangaverse`, configurável em
+`UPDATE_REPO` no `app/build.gradle.kts`): pega a release mais nova que tenha um `.apk` anexado e compara a versão do nome
+da tag (ex.: `mobile-v2.3`) com a instalada.
+
+- Ao abrir o app (no máximo a cada 6 h), se houver versão nova, ele baixa e instala sozinho. Dá para desligar em
+  **Início → ⚙ Ajustes** (só avisar, ou nem procurar) e procurar na hora pelo botão "Procurar atualização".
+- Antes de instalar, o app confere se o APK é do próprio MangaVerse, se é mais novo e se tem a **mesma assinatura**.
+- Na primeira vez o Android pede para permitir "Instalar apps desconhecidos" para o MangaVerse e confirmar a
+  instalação. A partir do Android 12, depois que o próprio app instalou uma versão, as seguintes podem entrar sem
+  pergunta.
+
+Para publicar uma versão: aumente `versionCode` e `versionName` em `app/build.gradle.kts` e rode
+`./release.sh "notas da versão"` (precisa do `gh` logado). Gere sempre na mesma máquina: o APK é assinado com a chave de
+debug dela, e o Android recusa atualizar um app com assinatura diferente.
+
+## Conteúdo +18
+
+Extensões de hentai/conteúdo adulto ficam **completamente separadas** do resto do app:
+
+- O **modo +18 vem desligado**. Para ligar: Extensões → ícone de ajustes → "Modo +18", com confirmação de idade.
+- Desligado, as extensões adultas não aparecem na lista, não podem ser instaladas, **não são carregadas** e os títulos
+  delas somem do Início, da pesquisa, do Explorar, da biblioteca e do histórico.
+- Ligado, elas ficam só na aba **+18** das extensões. Os arquivos ficam numa pasta própria (`files/exts-adult`); ao
+  desligar o modo dá para só escondê-las ou apagá-las.
+- Conta como adulta a extensão com aviso **NSFW** no repositório (formato novo do Keiyoushi, onde as fontes comuns com
+  algum título adulto vêm como "MIXED") ou com nome/pacote de conteúdo adulto (hentai, nhentai, doujin, porn…). O selo
+  "nsfw" do formato antigo (`index.min.json`) sozinho não basta, porque marca também fontes comuns.
 
 ## Como as extensões funcionam
 
@@ -28,14 +58,18 @@ downloads no próprio celular.
 
 ## Telas
 
+- **Início:** catálogo da fonte escolhida (toque no nome dela no topo para trocar): continue lendo, **Em alta**,
+  **Lançamentos recentes**, **Categorias**, **Populares** e novidades de outras fontes instaladas. "Ver tudo" abre a
+  lista completa com rolagem infinita; puxe para baixo para atualizar.
+- **Pesquisar:** pesquisa em todas as fontes ao mesmo tempo (ou só nas escolhidas), com pesquisas recentes e atalhos
+  para as categorias.
 - **Biblioteca:** títulos favoritos com capítulos não lidos, filtro, ordenação e "procurar capítulos novos" em todos.
 - **Histórico:** no topo, a obra que você está lendo agora (progresso da obra inteira, Continuar/Próximo capítulo,
   Obra completa e Adicionar à biblioteca); abaixo, o último capítulo lido de cada título.
-- **Explorar:** fontes instaladas (filtradas pelos idiomas escolhidos), populares/recentes/busca em cada fonte e
-  pesquisa em todas as fontes ao mesmo tempo. O botão **Fontes** escolhe em quais fontes a pesquisa procura (fica
-  salvo; atalhos "Só PT-BR" e "Sem +18"). As barras de pesquisa têm um **X** para limpar.
-- **Extensões:** instalar, atualizar e remover; idiomas, conteúdo adulto e repositórios. As extensões só de conteúdo
-  adulto ficam separadas na aba **+18** (a aba some ao desligar "Mostrar extensões adultas").
+- **Explorar:** fontes instaladas (filtradas pelos idiomas escolhidos); em cada fonte, Populares, Lançamentos,
+  **Categorias** (os gêneros vêm dos filtros da própria extensão) e busca. O ícone no topo abre as **Extensões**.
+- **Extensões:** instalar, atualizar e remover; idiomas, modo +18 e repositórios. As extensões só de conteúdo adulto
+  ficam na aba **+18**, que só existe com o modo +18 ligado.
 - **Título:** detalhes, adicionar à biblioteca, continuar, lista de capítulos (segure para selecionar vários: marcar
   lido/não lido, baixar, apagar download) e menu para baixar os próximos 5 ou todos os não lidos.
 - **Downloads:** fila com progresso. Os capítulos baixados abrem sem internet.
@@ -60,5 +94,5 @@ downloads no próprio celular.
 - Downloads só andam com o app aberto (não há serviço em segundo plano).
 - Ajustes próprios das extensões (`ConfigurableSource`, ex.: qualidade de imagem da MangaDex) ainda não têm tela;
   valem os padrões de cada extensão.
-- Filtros avançados das fontes (gênero, status…) ainda não aparecem; a busca por texto funciona.
+- Dos filtros das fontes, só o de gênero/categoria tem tela; os outros (status, ordem…) ainda não aparecem.
 - Sem sincronização com o servidor MangaVerse: biblioteca e progresso ficam só no celular.

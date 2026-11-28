@@ -28,6 +28,10 @@ class ProviderRegistryTest {
     }
 
     private ProviderRegistry registry(int limit, List<Provider> enabled) {
+        return registry(limit, enabled, false);
+    }
+
+    private ProviderRegistry registry(int limit, List<Provider> enabled, boolean adultMode) {
         AppProperties props = new AppProperties(null, null, null, new AppProperties.Providers(
                 new AppProperties.MangaDex(true, "x", "x", "", 1),
                 new AppProperties.ComicVine(true, "x", "", 1),
@@ -35,7 +39,9 @@ class ProviderRegistryTest {
         SuwayomiClient client = new SuwayomiClient(props.providers().suwayomi(), MockHttp.support()); // sem chamadas HTTP
         ProviderRepository repo = mock(ProviderRepository.class);
         when(repo.findByEnabledTrueAndSupportsSearchTrueOrderByPriorityAsc()).thenReturn(enabled);
-        return new ProviderRegistry(mock(MangaDexProvider.class), mock(ComicVineProvider.class), client, repo, props);
+        com.mangaverse.settings.SettingsService settings = mock(com.mangaverse.settings.SettingsService.class);
+        when(settings.adultMode()).thenReturn(adultMode);
+        return new ProviderRegistry(mock(MangaDexProvider.class), mock(ComicVineProvider.class), client, repo, props, settings);
     }
 
     @Test
@@ -89,5 +95,18 @@ class ProviderRegistryTest {
         assertThat(plan.selected()).extracting(ContentProvider::code).containsExactly("suwayomi:1", "suwayomi:2");
         assertThat(plan.skipped()).extracting(Provider::getName).containsExactly("C");
         assertThat(registry.searchable()).hasSize(2);
+    }
+
+    @Test
+    void adultSourcesOnlyEnterSearchWithAdultMode() {
+        Provider hentai = source("2", "Acervo Hentai", 20, "AUTO");
+        Provider flagged = source("3", "Tia Manhwa", 20, "AUTO");
+        flagged.setAdult(true);
+        List<Provider> all = List.of(source("1", "Manga Livre.to", 20, "AUTO"), hentai, flagged);
+
+        assertThat(registry(10, all, false).searchPlan(Set.of()).selected()).extracting(ContentProvider::code)
+                .containsExactly("suwayomi:1");
+        assertThat(registry(10, all, true).searchPlan(Set.of()).selected()).extracting(ContentProvider::code)
+                .containsExactly("suwayomi:1", "suwayomi:2", "suwayomi:3");
     }
 }

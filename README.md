@@ -328,16 +328,33 @@ idiomas preferidos (padrão `pt-br, en`) e classificação de conteúdo do Manga
    A seleção é aplicada antes do limite de fontes do Suwayomi, permitindo consultar uma fonte que ficaria
    de fora da pesquisa global por prioridade. Para Read Comics Online e ComicHubFree, procure as extensões
    no idioma **Inglês**, instale/atualize e confira se a fonte está habilitada e com o tipo **HQ**.
-4. Abra um título → **Adicionar à biblioteca** (ou *Adicionar e monitorar*).
-5. Na página do título: **Ler**, baixar capítulos individuais, por seleção, por volume ou *Baixar faltantes*.
-6. Ative **Monitorar novas edições** e, se quiser, **Baixar automaticamente** (exige também a opção
+4. **Explorar** é o catálogo: escolha uma fonte no topo (fica lembrada) e veja **Em alta** (carrossel), **Lançamentos
+   recentes**, **Categorias**, **Populares** e novidades de outras fontes. "Ver tudo" e cada categoria abrem a lista
+   completa, que carrega mais ao rolar. As categorias vêm do filtro de gêneros de cada extensão (tags de gênero na
+   MangaDex); fontes sem esse filtro, como Manga Livre e Mugiwaras, não mostram categorias.
+5. Abra um título → **Adicionar à biblioteca** (ou *Adicionar e monitorar*).
+6. Na página do título: **Ler**, baixar capítulos individuais, por seleção, por volume ou *Baixar faltantes*.
+7. Ative **Monitorar novas edições** e, se quiser, **Baixar automaticamente** (exige também a opção
    global em Configurações).
-7. Já tem arquivos? **Minha Biblioteca → Importar arquivos locais** e escolha a pasta.
-8. Na lista de capítulos, use a **busca** (número como `105` ou `cap 105`, ou parte do título/grupo) e alterne entre
+8. Já tem arquivos? **Minha Biblioteca → Importar arquivos locais** e escolha a pasta.
+9. Na lista de capítulos, use a **busca** (número como `105` ou `cap 105`, ou parte do título/grupo) e alterne entre
    **mais antigos** e **mais recentes primeiro** — a ordem escolhida é lembrada.
-9. Faltando capítulos? Na página do título, **Encontrar mais fontes** procura a mesma obra nas outras
+10. Faltando capítulos? Na página do título, **Encontrar mais fontes** procura a mesma obra nas outras
    fontes habilitadas e vincula as que trazem capítulos legíveis que você ainda não tem. Por padrão a lista mostra
    **uma versão por capítulo** (baixada > legível no idioma preferido > legível em outro idioma > link oficial).
+
+### Conteúdo +18
+
+Fontes e extensões de hentai/conteúdo adulto ficam **completamente separadas** e vêm escondidas:
+
+- O **modo +18 vem desligado**. Para ligar: **Configurações → Conteúdo +18** (pede confirmação de idade; vale na hora).
+- Desligado, as fontes adultas não entram na pesquisa global nem no Explorar, somem da lista de fontes e de extensões,
+  não podem ser instaladas, e os títulos que só existem nelas somem da biblioteca e do Dashboard. As classificações
+  Erótico e Adulto da MangaDex também ficam travadas.
+- Ligado, elas aparecem numa lista própria (**Fontes +18** e aba **+18** das extensões), com selo 18+.
+- Conta como adulta a fonte com aviso **NSFW** no repositório (no formato novo do Keiyoushi, fontes comuns com algum
+  título adulto vêm como `MIXED`, ex.: Mugiwaras, Manga Livre, MangaDex) ou com nome/pacote de conteúdo adulto
+  (hentai, doujin, porn…).
 
 Atalhos do leitor: `←`/`→` navegam (respeitando a direção), `F` tela cheia, `+`/`−`/`0` zoom,
 `N`/`P` próximo/anterior capítulo, `Esc` volta. No celular: deslize para os lados ou toque nas
@@ -585,6 +602,7 @@ Todas sob `/api`, autenticadas (exceto login/csrf). Respostas de erro seguem `Pr
 | GET | `/auth/csrf` · POST `/auth/login` · POST `/auth/logout` · GET `/auth/me` · POST `/auth/password` | Autenticação |
 | GET | `/search?q=&types=MANGA,COMIC&providers=` | Pesquisa global agregada |
 | GET | `/explore?provider=&kind=POPULAR\|LATEST&page=` | Populares/recentes |
+| GET | `/catalog/sources` · `/catalog/genres?provider=` · `/catalog/listing?provider=&kind=POPULAR\|LATEST\|GENRE&genre=&page=` | Catálogo do Explorar (fontes, categorias e listagens) |
 | GET | `/titles/{providerCode}/{externalId}?lang=` | Detalhes direto da fonte |
 | GET/POST/PATCH/DELETE | `/library`, `/library/{entryId}` | Biblioteca |
 | POST | `/library/import` · GET `/library/browse?path=` | Importação local / navegador de pastas |

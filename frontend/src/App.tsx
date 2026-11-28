@@ -7,6 +7,7 @@ import LoginPage from './pages/LoginPage'
 
 const DashboardPage = lazy(() => import('./pages/DashboardPage'))
 const ExplorePage = lazy(() => import('./pages/ExplorePage'))
+const CatalogListPage = lazy(() => import('./pages/CatalogListPage'))
 const SearchPage = lazy(() => import('./pages/SearchPage'))
 const LibraryPage = lazy(() => import('./pages/LibraryPage'))
 const RemoteTitlePage = lazy(() => import('./pages/RemoteTitlePage'))
@@ -35,6 +36,7 @@ export default function App() {
         <Route element={<Layout />}>
           <Route index element={<DashboardPage />} />
           <Route path="explorar" element={<ExplorePage />} />
+          <Route path="explorar/lista" element={<CatalogListPage />} />
           <Route path="pesquisa" element={<SearchPage />} />
           <Route path="biblioteca" element={<LibraryPage />} />
           <Route path="titulo/:providerCode/:externalId" element={<RemoteTitlePage />} />

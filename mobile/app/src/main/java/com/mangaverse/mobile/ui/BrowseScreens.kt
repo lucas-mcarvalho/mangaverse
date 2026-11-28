@@ -1,6 +1,10 @@
 package com.mangaverse.mobile.ui
 
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -24,6 +28,7 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.Public
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.CircularProgressIndicator
@@ -36,6 +41,7 @@ import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateMapOf
@@ -55,6 +61,8 @@ import androidx.compose.ui.unit.sp
 import com.mangaverse.mobile.App
 import com.mangaverse.mobile.app
 import com.mangaverse.mobile.ext.ExtensionManager
+import com.mangaverse.mobile.ext.Genre
+import com.mangaverse.mobile.ext.Genres
 import eu.kanade.tachiyomi.source.CatalogueSource
 import eu.kanade.tachiyomi.source.model.MangasPage
 import eu.kanade.tachiyomi.source.model.SManga
@@ -75,24 +83,28 @@ fun openRemote(app: App, nav: Nav, sourceId: Long, s: SManga, scope: kotlinx.cor
     scope.launch { nav.manga(app.db.networkToLocal(sourceId, s).id) }
 }
 
-private enum class Listing(val label: String) { POPULAR("Populares"), LATEST("Recentes"), SEARCH("Busca") }
+enum class Listing(val label: String) { POPULAR("Populares"), LATEST("Recentes"), SEARCH("Busca"), GENRE("Categoria") }
 
 @Composable
-fun SourceScreen(sourceId: Long) {
+fun SourceScreen(sourceId: Long, initialListing: Listing = Listing.POPULAR, initialGenre: Int = -1) {
     val app = LocalContext.current.app
     val nav = LocalNav.current
     val scope = rememberCoroutineScope()
     val source = remember(sourceId) { app.extensions.source(sourceId) as? CatalogueSource }
-    var listing by rememberSaveable { mutableStateOf(Listing.POPULAR) }
+    var listing by rememberSaveable { mutableStateOf(if (initialGenre >= 0) Listing.GENRE else initialListing) }
     var query by rememberSaveable { mutableStateOf("") }
+    var genreIndex by rememberSaveable { mutableStateOf(initialGenre) }
+    var genreName by rememberSaveable { mutableStateOf<String?>(null) }
     var searchOpen by rememberSaveable { mutableStateOf(false) }
+    var genresOpen by remember { mutableStateOf(false) }
 
-    val items = remember(listing, query) { mutableStateListOf<SManga>() }
-    var page by remember(listing, query) { mutableStateOf(0) }
-    var hasNext by remember(listing, query) { mutableStateOf(true) }
-    var loading by remember(listing, query) { mutableStateOf(false) }
-    var error by remember(listing, query) { mutableStateOf<String?>(null) }
+    val items = remember(listing, query, genreIndex) { mutableStateListOf<SManga>() }
+    var page by remember(listing, query, genreIndex) { mutableStateOf(0) }
+    var hasNext by remember(listing, query, genreIndex) { mutableStateOf(true) }
+    var loading by remember(listing, query, genreIndex) { mutableStateOf(false) }
+    var error by remember(listing, query, genreIndex) { mutableStateOf<String?>(null) }
     var job by remember { mutableStateOf<Job?>(null) }
+    val genres = rememberLoad(sourceId) { source?.let { withContext(Dispatchers.IO) { Genres.of(it) } }.orEmpty() }
 
     fun loadMore() {
         val s = source ?: return
@@ -107,6 +119,11 @@ fun SourceScreen(sourceId: Long) {
                         Listing.POPULAR -> s.getPopularManga(next)
                         Listing.LATEST -> s.getLatestUpdates(next)
                         Listing.SEARCH -> s.getSearchManga(next, query, s.getFilterList())
+                        Listing.GENRE -> {
+                            val (genre, filters) = Genres.filtersFor(s, genreIndex) ?: throw IllegalStateException("Esta fonte não tem essa categoria")
+                            genreName = genre.name
+                            s.getSearchManga(next, "", filters)
+                        }
                     }
                 }
                 val known = items.map { it.url }.toHashSet()
@@ -122,9 +139,15 @@ fun SourceScreen(sourceId: Long) {
         }
     }
 
+    fun show(l: Listing, genre: Genre? = null) {
+        job?.cancel()
+        if (genre != null) { genreIndex = genre.index; genreName = genre.name }
+        listing = l
+    }
+
     val grid = rememberLazyGridState()
-    LaunchedEffect(listing, query) { loadMore() }
-    LaunchedEffect(grid, listing, query) {
+    LaunchedEffect(listing, query, genreIndex) { loadMore() }
+    LaunchedEffect(grid, listing, query, genreIndex) {
         snapshotFlow { grid.layoutInfo.visibleItemsInfo.lastOrNull()?.index ?: 0 }.collect { last ->
             if (last >= items.size - 6) loadMore()
         }
@@ -153,7 +176,7 @@ fun SourceScreen(sourceId: Long) {
             actions = {
                 IconButton({
                     searchOpen = !searchOpen
-                    if (!searchOpen && listing == Listing.SEARCH) { job?.cancel(); listing = Listing.POPULAR; query = "" }
+                    if (!searchOpen && listing == Listing.SEARCH) { query = ""; show(Listing.POPULAR) }
                 }) { Icon(if (searchOpen) Icons.Default.Close else Icons.Default.Search, "Pesquisar") }
                 if (source is HttpSource) IconButton({ nav.webView(source.baseUrl, source.id) }) { Icon(Icons.Default.Public, "Abrir o site") }
             },
@@ -164,9 +187,12 @@ fun SourceScreen(sourceId: Long) {
             return@Column
         }
         if (listing != Listing.SEARCH) {
-            Row(Modifier.padding(horizontal = 12.dp, vertical = 4.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                Pill(Listing.POPULAR.label, listing == Listing.POPULAR) { job?.cancel(); listing = Listing.POPULAR }
-                if (source.supportsLatest) Pill(Listing.LATEST.label, listing == Listing.LATEST) { job?.cancel(); listing = Listing.LATEST }
+            Row(Modifier.horizontalScroll(rememberScrollState()).padding(horizontal = 12.dp, vertical = 4.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Pill(Listing.POPULAR.label, listing == Listing.POPULAR) { show(Listing.POPULAR) }
+                if (source.supportsLatest) Pill("Lançamentos", listing == Listing.LATEST) { show(Listing.LATEST) }
+                if (genres.data?.isNotEmpty() == true) {
+                    Pill(if (listing == Listing.GENRE && genreName != null) "${genreName} ▾" else "Categorias ▾", listing == Listing.GENRE) { genresOpen = true }
+                }
             }
         }
         if (items.isEmpty() && error != null) {
@@ -175,7 +201,14 @@ fun SourceScreen(sourceId: Long) {
             return@Column
         }
         if (items.isEmpty() && !loading && !hasNext) {
-            EmptyState("Nada encontrado", if (listing == Listing.SEARCH) "Nenhum resultado para “$query” nesta fonte." else "A fonte não devolveu títulos.")
+            EmptyState(
+                "Nada encontrado",
+                when (listing) {
+                    Listing.SEARCH -> "Nenhum resultado para “$query” nesta fonte."
+                    Listing.GENRE -> "A fonte não devolveu títulos em “${genreName ?: "categoria"}”."
+                    else -> "A fonte não devolveu títulos."
+                },
+            )
             return@Column
         }
         LazyVerticalGrid(
@@ -192,6 +225,38 @@ fun SourceScreen(sourceId: Long) {
                         error != null -> TextButton(::loadMore) { Text("Erro: $error · tentar de novo") }
                     }
                 }
+            }
+        }
+    }
+
+    if (genresOpen) {
+        GenresSheet(genres.data.orEmpty(), selected = genreIndex.takeIf { listing == Listing.GENRE }, onClose = { genresOpen = false }) { g ->
+            genresOpen = false
+            show(Listing.GENRE, g)
+        }
+    }
+}
+
+/** Lista de categorias de uma fonte para escolher uma. */
+@OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class, androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
+@Composable
+fun GenresSheet(genres: List<Genre>, selected: Int?, onClose: () -> Unit, onPick: (Genre) -> Unit) {
+    var filter by remember { mutableStateOf("") }
+    val shown = genres.filter { filter.isBlank() || it.name.contains(filter.trim(), true) }
+    androidx.compose.material3.ModalBottomSheet(onClose, containerColor = Surface1) {
+        Column(Modifier.padding(horizontal = 16.dp).padding(bottom = 20.dp)) {
+            Text("Categorias", fontWeight = FontWeight.Bold, fontSize = 17.sp)
+            if (genres.size > 12) OutlinedTextField(
+                filter, { filter = it }, singleLine = true, placeholder = { Text("Filtrar categorias") },
+                leadingIcon = { Icon(Icons.Default.Search, null) },
+                trailingIcon = { if (filter.isNotEmpty()) IconButton({ filter = "" }) { Icon(Icons.Default.Close, "Limpar") } },
+                modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp),
+            )
+            androidx.compose.foundation.layout.FlowRow(
+                Modifier.heightIn(max = 460.dp).verticalScroll(rememberScrollState()).padding(top = 8.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                shown.forEach { g -> Pill(g.name, g.index == selected) { onPick(g) } }
             }
         }
     }
@@ -214,8 +279,12 @@ private sealed interface SearchState {
     data class Failed(val message: String) : SearchState
 }
 
+/**
+ * Pesquisa em várias fontes ao mesmo tempo. Na aba Pesquisar ([inTab]) não tem botão de voltar e, sem texto, mostra as
+ * pesquisas recentes e as categorias da fonte principal do Início.
+ */
 @Composable
-fun GlobalSearchScreen(initial: String) {
+fun GlobalSearchScreen(initial: String, inTab: Boolean = false, goToExtensions: () -> Unit = {}) {
     val app = LocalContext.current.app
     val nav = LocalNav.current
     val scope = rememberCoroutineScope()
@@ -223,12 +292,28 @@ fun GlobalSearchScreen(initial: String) {
     var text by rememberSaveable { mutableStateOf(initial) }
     val ctx = LocalContext.current
     val searchPrefs = remember { SearchSourcePrefs(ctx) }
-    val allSources = remember { app.extensions.visibleSources() }
+    val catalogPrefs = remember { CatalogPrefs(ctx) }
+    val installed by app.extensions.installed.collectAsState()
+    val settings by app.extensions.settings.collectAsState()
+    val allSources = remember(installed, settings) { app.extensions.visibleSources() }
     var chosen by remember { mutableStateOf(searchPrefs.selected) }
-    val sources = remember(chosen) { searchSources(allSources, chosen) }
-    val results = remember(query, chosen) { mutableStateMapOf<Long, SearchState>() }
+    val sources = remember(allSources, chosen) { searchSources(allSources, chosen) }
+    val results = remember(query, sources) { mutableStateMapOf<Long, SearchState>() }
+    var recent by remember { mutableStateOf(catalogPrefs.recentSearches) }
 
-    LaunchedEffect(query, chosen) {
+    fun submit(q: String) {
+        val t = q.trim()
+        if (t.isBlank()) return
+        text = t
+        query = t
+        catalogPrefs.addRecentSearch(t)
+        recent = catalogPrefs.recentSearches
+    }
+
+    LaunchedEffect(Unit) { if (initial.isNotBlank()) { catalogPrefs.addRecentSearch(initial); recent = catalogPrefs.recentSearches } }
+
+    LaunchedEffect(query, sources) {
+        if (query.isBlank()) return@LaunchedEffect
         sources.forEach { results[it.id] = SearchState.Loading }
         val gate = Semaphore(5)
         coroutineScope {
@@ -249,25 +334,39 @@ fun GlobalSearchScreen(initial: String) {
 
     Column(Modifier.fillMaxSize()) {
         TopAppBar(
-            navigationIcon = { IconButton({ nav.back() }) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Voltar") } },
+            navigationIcon = { if (!inTab) IconButton({ nav.back() }) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Voltar") } },
             title = {
                 OutlinedTextField(
-                    text, { text = it }, singleLine = true, placeholder = { Text("Pesquisar") },
-                    trailingIcon = { if (text.isNotEmpty()) IconButton({ text = "" }) { Icon(Icons.Default.Close, "Limpar") } },
+                    text, { text = it }, singleLine = true, placeholder = { Text("Pesquisar mangás, manhwas, HQs…") },
+                    leadingIcon = if (inTab) ({ Icon(Icons.Default.Search, null) }) else null,
+                    trailingIcon = { if (text.isNotEmpty()) IconButton({ text = ""; if (inTab) query = "" }) { Icon(Icons.Default.Close, "Limpar") } },
                     keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
-                    keyboardActions = KeyboardActions(onSearch = { if (text.isNotBlank()) query = text.trim() }),
+                    keyboardActions = KeyboardActions(onSearch = { submit(text) }),
                     modifier = Modifier.fillMaxWidth().padding(end = 8.dp),
                 )
             },
             colors = TopAppBarDefaults.topAppBarColors(containerColor = Canvas),
         )
-        if (sources.isEmpty()) {
-            EmptyState("Nenhuma fonte instalada", "Instale extensões na aba Extensões para pesquisar.")
+        if (allSources.isEmpty()) {
+            EmptyState("Nenhuma fonte instalada", "Instale extensões para pesquisar títulos.") {
+                androidx.compose.material3.Button(goToExtensions) { Text("Ver extensões") }
+            }
             return@Column
         }
         SearchSourcesChip(allSources, chosen, { chosen = it; searchPrefs.selected = it }, Modifier.padding(horizontal = 12.dp, vertical = 4.dp))
+
+        if (query.isBlank()) {
+            SearchSuggestions(
+                recent = recent, mainSource = catalogPrefs.mainSource(allSources),
+                onSearch = ::submit,
+                onRemove = { catalogPrefs.removeRecentSearch(it); recent = catalogPrefs.recentSearches },
+                onClear = { catalogPrefs.clearRecentSearches(); recent = emptyList() },
+            )
+            return@Column
+        }
+
         val withResults = sources.filter { (results[it.id] as? SearchState.Done)?.mangas?.isNotEmpty() == true }
-        val pending = sources.count { results[it.id] == SearchState.Loading }
+        val pending = sources.count { results[it.id] == null || results[it.id] == SearchState.Loading }
         val empty = sources.filter { (results[it.id] as? SearchState.Done)?.mangas?.isEmpty() == true }
         val failed = sources.filter { results[it.id] is SearchState.Failed }
 
@@ -304,6 +403,48 @@ fun GlobalSearchScreen(initial: String) {
     }
 }
 
+/** Pesquisa vazia: pesquisas recentes e categorias da fonte principal. */
+@OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
+@Composable
+private fun SearchSuggestions(
+    recent: List<String>, mainSource: CatalogueSource?, onSearch: (String) -> Unit, onRemove: (String) -> Unit, onClear: () -> Unit,
+) {
+    val nav = LocalNav.current
+    val genres = rememberLoad(mainSource?.id) { mainSource?.let { withContext(Dispatchers.IO) { Genres.of(it) } }.orEmpty() }
+    LazyColumn(contentPadding = PaddingValues(bottom = 16.dp)) {
+        if (recent.isNotEmpty()) {
+            item {
+                Row(Modifier.fillMaxWidth().padding(start = 16.dp, end = 4.dp, top = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Text("Pesquisas recentes", fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
+                    TextButton(onClear) { Text("Limpar", fontSize = 12.sp) }
+                }
+            }
+            items(recent, key = { "r-$it" }) { q ->
+                Row(Modifier.fillMaxWidth().clickable { onSearch(q) }.padding(start = 16.dp, end = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Icon(Icons.Default.History, null, tint = Muted, modifier = Modifier.size(20.dp))
+                    Text(q, modifier = Modifier.weight(1f).padding(horizontal = 12.dp, vertical = 12.dp))
+                    IconButton({ onRemove(q) }) { Icon(Icons.Default.Close, "Remover", tint = Muted, modifier = Modifier.size(18.dp)) }
+                }
+            }
+        }
+        val list = genres.data.orEmpty()
+        if (mainSource != null && list.isNotEmpty()) {
+            item {
+                Column(Modifier.padding(horizontal = 16.dp, vertical = 12.dp)) {
+                    Text("Explorar por categoria", fontWeight = FontWeight.Bold)
+                    Text("em ${mainSource.name}", color = Muted, fontSize = 12.sp, modifier = Modifier.padding(bottom = 10.dp))
+                    androidx.compose.foundation.layout.FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        list.forEach { g -> Pill(g.name, false) { nav.source(mainSource.id, genre = g.index) } }
+                    }
+                }
+            }
+        }
+        if (recent.isEmpty() && list.isEmpty() && !genres.loading) {
+            item { EmptyState("Pesquise em todas as suas fontes", "Digite o nome de um título. As pesquisas ficam salvas aqui.", Modifier.height(260.dp)) }
+        }
+    }
+}
+
 // ---------------------------------------------------------------------------------------------------------------
 // Fontes da pesquisa global: o usuário escolhe em quais fontes pesquisar (vazio = todas). Fica salvo no aparelho.
 
@@ -336,7 +477,8 @@ fun SearchSourcesChip(all: List<CatalogueSource>, selected: Set<Long>, onChange:
 private fun SearchSourcesSheet(all: List<CatalogueSource>, selected: Set<Long>, onChange: (Set<Long>) -> Unit, onClose: () -> Unit) {
     var sel by remember { mutableStateOf(selected.filter { id -> all.any { it.id == id } }.toSet()) }
     var filter by remember { mutableStateOf("") }
-    val adult = remember(all) { all.filter { ExtensionManager.isAdult(it.name, it.javaClass.name) }.map { it.id }.toSet() }
+    val app = LocalContext.current.app
+    val adult = remember(all) { app.extensions.adultSourceIds().let { ids -> all.filter { it.id in ids }.map { it.id }.toSet() } }
     val shown = all.filter { filter.isBlank() || it.name.contains(filter.trim(), true) }
     androidx.compose.material3.ModalBottomSheet({ onChange(sel); onClose() }, containerColor = Surface1) {
         Column(Modifier.padding(horizontal = 16.dp).padding(bottom = 20.dp)) {

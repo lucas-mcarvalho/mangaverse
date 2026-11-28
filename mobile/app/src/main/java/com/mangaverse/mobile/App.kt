@@ -16,6 +16,7 @@ import com.mangaverse.mobile.data.DownloadManager
 import com.mangaverse.mobile.data.PageFetcher
 import com.mangaverse.mobile.data.PageKeyer
 import com.mangaverse.mobile.ext.ExtensionManager
+import com.mangaverse.mobile.update.AppUpdater
 import eu.kanade.tachiyomi.network.JavaScriptEngine
 import eu.kanade.tachiyomi.network.NetworkHelper
 import kotlinx.coroutines.CoroutineScope
@@ -34,6 +35,7 @@ class App : Application(), SingletonImageLoader.Factory {
     lateinit var db: Db
     lateinit var extensions: ExtensionManager
     lateinit var downloads: DownloadManager
+    lateinit var updater: AppUpdater
 
     override fun onCreate() {
         super.onCreate()
@@ -55,6 +57,8 @@ class App : Application(), SingletonImageLoader.Factory {
         extensions = ExtensionManager(this, network, scope)
         downloads = DownloadManager(this, extensions, scope)
         extensions.init()
+        updater = AppUpdater(this, network, scope)
+        updater.checkOnStart()
     }
 
     override fun newImageLoader(context: PlatformContext): ImageLoader =

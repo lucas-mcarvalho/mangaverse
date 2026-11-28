@@ -20,6 +20,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Search
@@ -68,12 +69,13 @@ import com.mangaverse.mobile.ext.ExtensionManager
 import com.mangaverse.mobile.ext.InstalledExtension
 import com.mangaverse.mobile.ext.KEIYOUSHI_REPO
 import com.mangaverse.mobile.ext.RepoExtension
+import com.mangaverse.mobile.ext.adult
 import kotlinx.coroutines.launch
 
 private val Danger = Color(0xFFF87171)
 
 @Composable
-fun ExtensionsTab() {
+fun ExtensionsTab(onBack: (() -> Unit)? = null) {
     val app = LocalContext.current.app
     val ext = app.extensions
     val scope = rememberCoroutineScope()
@@ -87,6 +89,7 @@ fun ExtensionsTab() {
     var query by rememberSaveable { mutableStateOf("") }
     var showSettings by remember { mutableStateOf(false) }
     var confirmRemove by remember { mutableStateOf<InstalledExtension?>(null) }
+    var confirmRemoveAdult by remember { mutableStateOf(false) }
     val progress = remember { mutableStateMapOf<String, Float>() }
 
     fun install(e: RepoExtension) {
@@ -107,28 +110,29 @@ fun ExtensionsTab() {
     val repoByPkg = remember(available) { available.associateBy { it.pkg } }
     val installedPkgs = remember(installed) { installed.map { it.pkg }.toSet() }
     val q = query.trim()
-    // aba 0 = instaladas, 1 = disponíveis, 2 = +18 (instaladas e disponíveis só de conteúdo adulto, separadas das outras)
-    val adultTab = settings.nsfw
+    // aba 0 = instaladas, 1 = disponíveis, 2 = +18 (instaladas e disponíveis só de conteúdo adulto). A aba +18 só existe
+    // com o modo +18 ligado; desligado, as extensões adultas nem são carregadas e não aparecem em lugar nenhum.
+    val adultTab = settings.adultMode
     if (!adultTab && page == 2) page = 0
-    val shownInstalled = remember(installed, q, page) {
-        installed.filter { (q.isEmpty() || it.name.contains(q, true)) && ExtensionManager.isAdult(it.name, it.pkg) == (page == 2) }
+    val shownInstalled = remember(installed, q, page, adultTab) {
+        installed.filter { (q.isEmpty() || it.name.contains(q, true)) && it.adult == (page == 2) && (adultTab || !it.adult) }
     }
     val shownAvailable = remember(available, installedPkgs, settings, q, page) {
         available.filter { e ->
-            e.pkg !in installedPkgs && (settings.nsfw || !e.nsfw) &&
-                ExtensionManager.isAdult(e.name, e.pkg) == (page == 2) &&
+            e.pkg !in installedPkgs && e.adult == (page == 2) && (settings.adultMode || !e.adult) &&
                 (e.lang in settings.langs || e.sources.any { it.lang in settings.langs }) &&
                 (q.isEmpty() || e.name.contains(q, true))
         }.sortedWith(compareBy({ langRank(it.lang) }, { it.name.lowercase() }))
     }
-    val adultInstalled = installed.count { ExtensionManager.isAdult(it.name, it.pkg) }
-    val updates = installed.filter { i -> repoByPkg[i.pkg]?.let { it.versionCode > i.versionCode } == true }
+    val adultInstalled = installed.count { it.adult }
+    val updates = installed.filter { i -> (adultTab || !i.adult) && repoByPkg[i.pkg]?.let { it.versionCode > i.versionCode } == true }
 
     Scaffold(
         snackbarHost = { SnackbarHost(snackbar) },
         topBar = {
             TopAppBar(
                 title = { Text("Extensões", fontWeight = FontWeight.Bold) },
+                navigationIcon = { if (onBack != null) IconButton(onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Voltar") } },
                 actions = {
                     IconButton({ scope.launch { ext.refreshRepo() } }, enabled = !loadingRepo) { Icon(Icons.Default.Refresh, "Atualizar lista") }
                     IconButton({ showSettings = true }) { Icon(Icons.Default.Settings, "Idiomas e repositórios") }
@@ -172,7 +176,17 @@ fun ExtensionsTab() {
                             nsfw = true, error = null, progress = progress[e.pkg],
                         ) { Button({ install(e) }) { Text("Instalar") } }
                     }
-                    item { Text("Só extensões de conteúdo adulto ficam aqui. Para esconder esta aba, desligue “Mostrar extensões adultas” nos ajustes.", color = Muted, fontSize = 12.sp, modifier = Modifier.padding(16.dp)) }
+                    item {
+                        Column(Modifier.padding(16.dp)) {
+                            Text(
+                                "As extensões de conteúdo adulto ficam guardadas à parte e só funcionam com o modo +18 ligado. " +
+                                    "Desligando o modo (ícone de ajustes), elas param de carregar e somem do Início, da pesquisa, do Explorar, " +
+                                    "da biblioteca e do histórico.",
+                                color = Muted, fontSize = 12.sp,
+                            )
+                            if (shownInstalled.isNotEmpty()) TextButton({ confirmRemoveAdult = true }) { Text("Remover todas as extensões +18", color = Danger) }
+                        }
+                    }
                 }
             } else if (page == 0) {
                 if (installed.isEmpty()) {
@@ -217,7 +231,8 @@ fun ExtensionsTab() {
                         }
                         item {
                             Text(
-                                "Mostrando ${shownAvailable.size} de ${available.size}. Idiomas e conteúdo adulto mudam no ícone de ajustes.",
+                                "Mostrando ${shownAvailable.size} de ${available.size}. Os idiomas mudam no ícone de ajustes. " +
+                                    if (adultTab) "As extensões +18 ficam na aba +18." else "Extensões +18 (hentai) ficam escondidas.",
                                 color = Muted, fontSize = 12.sp, modifier = Modifier.padding(16.dp),
                             )
                         }
@@ -234,6 +249,18 @@ fun ExtensionsTab() {
             text = { Text("Os títulos dessa fonte continuam na biblioteca e os capítulos baixados continuam legíveis, mas não dá para atualizar nem ler online até instalar de novo.") },
             confirmButton = { TextButton({ ext.uninstall(i.pkg); confirmRemove = null }) { Text("Remover", color = Danger) } },
             dismissButton = { TextButton({ confirmRemove = null }) { Text("Cancelar") } },
+        )
+    }
+
+    if (confirmRemoveAdult) {
+        AlertDialog(
+            onDismissRequest = { confirmRemoveAdult = false },
+            title = { Text("Remover todas as extensões +18?") },
+            text = { Text("Os arquivos das extensões adultas são apagados do aparelho. Dá para instalar de novo pela aba +18.") },
+            confirmButton = {
+                TextButton({ ext.uninstallAllAdult(); confirmRemoveAdult = false }) { Text("Remover", color = Danger) }
+            },
+            dismissButton = { TextButton({ confirmRemoveAdult = false }) { Text("Cancelar") } },
         )
     }
 
@@ -284,13 +311,23 @@ private val LANGS = listOf("pt-BR", "en", "es", "es-419", "ja", "ko", "zh", "fr"
 private fun ExtensionSettingsSheet(ext: ExtensionManager, onClose: () -> Unit) {
     val current = ext.settings.value
     var langs by remember { mutableStateOf(current.langs) }
-    var nsfw by remember { mutableStateOf(current.nsfw) }
+    var adultMode by remember { mutableStateOf(current.adultMode) }
     var repos by remember { mutableStateOf(current.repos.joinToString("\n")) }
+    var askEnableAdult by remember { mutableStateOf(false) }
+    var askDisableAdult by remember { mutableStateOf(false) }
 
     fun save() {
         val list = repos.lines().map { it.trim() }.filter { it.startsWith("http") }.ifEmpty { listOf(KEIYOUSHI_REPO) }
-        ext.updateSettings(ExtensionManager.ExtSettings(list, langs + "all", nsfw))
+        ext.updateSettings(ExtensionManager.ExtSettings(list, langs + "all", adultMode))
         onClose()
+    }
+
+    fun toggleAdult() {
+        if (adultMode) {
+            if (ext.adultInstalledCount() > 0) askDisableAdult = true else adultMode = false
+        } else {
+            askEnableAdult = true
+        }
     }
 
     ModalBottomSheet(::save, containerColor = Surface1) {
@@ -299,17 +336,56 @@ private fun ExtensionSettingsSheet(ext: ExtensionManager, onClose: () -> Unit) {
             FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 LANGS.forEach { l -> Pill(ExtensionManager.langName(l), l in langs) { langs = if (l in langs) langs - l else langs + l } }
             }
-            Row(Modifier.fillMaxWidth().clickable { nsfw = !nsfw }, verticalAlignment = Alignment.CenterVertically) {
+            Row(Modifier.fillMaxWidth().clickable(onClick = ::toggleAdult), verticalAlignment = Alignment.CenterVertically) {
                 Column(Modifier.weight(1f)) {
-                    Text("Mostrar extensões adultas (aba +18)")
-                    Text("Mostra a aba +18, com as extensões adultas separadas das outras.", color = Muted, fontSize = 12.sp)
+                    Text("Modo +18 (conteúdo adulto)")
+                    Text(
+                        if (adultMode) "Ligado: a aba +18 aparece e as extensões adultas funcionam."
+                        else "Desligado: extensões de hentai/conteúdo adulto ficam fora do app. Ligue só se quiser usá-las.",
+                        color = Muted, fontSize = 12.sp,
+                    )
                 }
-                Switch(nsfw, { nsfw = it })
+                Switch(adultMode, { toggleAdult() })
             }
             Text("Repositórios", fontWeight = FontWeight.Bold)
             Text("Um por linha. Aceita o index.json, o index.min.json ou o repo.json de repositórios no formato do Mihon.", color = Muted, fontSize = 12.sp)
             OutlinedTextField(repos, { repos = it }, Modifier.fillMaxWidth(), textStyle = androidx.compose.ui.text.TextStyle(fontSize = 12.sp))
             Button(::save, Modifier.fillMaxWidth()) { Text("Salvar") }
         }
+    }
+
+    if (askEnableAdult) {
+        AlertDialog(
+            onDismissRequest = { askEnableAdult = false },
+            title = { Text("Ligar o modo +18?") },
+            text = {
+                Text(
+                    "O modo +18 libera extensões de hentai e outros conteúdos sexualmente explícitos. Elas ficam numa aba própria, " +
+                        "separadas das fontes comuns, e você pode desligar o modo quando quiser.\n\nConfirme que você tem 18 anos ou mais.",
+                )
+            },
+            confirmButton = { TextButton({ adultMode = true; askEnableAdult = false }) { Text("Tenho 18 anos ou mais", color = Pink) } },
+            dismissButton = { TextButton({ askEnableAdult = false }) { Text("Cancelar") } },
+        )
+    }
+
+    if (askDisableAdult) {
+        val count = remember { ext.adultInstalledCount() }
+        AlertDialog(
+            onDismissRequest = { askDisableAdult = false },
+            title = { Text("Desligar o modo +18") },
+            text = {
+                Text(
+                    "Você tem $count extensão(ões) +18 instalada(s). Elas podem ficar guardadas (escondidas e sem carregar) " +
+                        "ou ser apagadas do aparelho.",
+                )
+            },
+            confirmButton = {
+                TextButton({ adultMode = false; askDisableAdult = false }) { Text("Só esconder") }
+            },
+            dismissButton = {
+                TextButton({ ext.uninstallAllAdult(); adultMode = false; askDisableAdult = false }) { Text("Apagar", color = Danger) }
+            },
+        )
     }
 }

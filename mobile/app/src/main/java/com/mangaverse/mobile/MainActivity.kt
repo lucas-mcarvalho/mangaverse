@@ -14,6 +14,10 @@ import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
 import com.mangaverse.mobile.reader.ReaderScreen
 import com.mangaverse.mobile.ui.DownloadsScreen
+import com.mangaverse.mobile.ui.ExtensionsTab
+import com.mangaverse.mobile.ui.Listing
+import com.mangaverse.mobile.ui.SettingsScreen
+import com.mangaverse.mobile.ui.UpdatePrompt
 import com.mangaverse.mobile.ui.GlobalSearchScreen
 import com.mangaverse.mobile.ui.HomeScreen
 import com.mangaverse.mobile.ui.LocalNav
@@ -41,7 +45,20 @@ class MainActivity : ComponentActivity() {
                     NavHost(controller, startDestination = "home") {
                         composable("home") { HomeScreen() }
                         composable("manga/{id}", listOf(long("id"))) { MangaScreen(it.arguments!!.getLong("id")) }
-                        composable("source/{id}", listOf(long("id"))) { SourceScreen(it.arguments!!.getLong("id")) }
+                        composable(
+                            "source/{id}?listing={listing}&genre={genre}",
+                            listOf(
+                                long("id"),
+                                navArgument("listing") { type = NavType.StringType; defaultValue = Listing.POPULAR.name },
+                                navArgument("genre") { type = NavType.IntType; defaultValue = -1 },
+                            ),
+                        ) {
+                            val args = it.arguments!!
+                            val listing = runCatching { Listing.valueOf(args.getString("listing").orEmpty()) }.getOrDefault(Listing.POPULAR)
+                            SourceScreen(args.getLong("id"), listing, args.getInt("genre"))
+                        }
+                        composable("extensions") { ExtensionsTab(onBack = { controller.popBackStack() }) }
+                        composable("settings") { SettingsScreen() }
                         composable("search/{q}", listOf(navArgument("q") { type = NavType.StringType })) { GlobalSearchScreen(it.arguments!!.getString("q").orEmpty()) }
                         composable("downloads") { DownloadsScreen() }
                         composable("web/{source}?url={url}", listOf(long("source"), navArgument("url") { type = NavType.StringType; defaultValue = "" })) {
@@ -55,6 +72,7 @@ class MainActivity : ComponentActivity() {
                             )
                         }
                     }
+                    UpdatePrompt()
                 }
             }
         }

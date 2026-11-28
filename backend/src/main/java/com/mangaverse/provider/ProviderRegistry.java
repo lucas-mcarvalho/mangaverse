@@ -16,6 +16,7 @@ import com.mangaverse.provider.spi.ContentProvider;
 import com.mangaverse.provider.spi.ContentType;
 import com.mangaverse.provider.suwayomi.SuwayomiClient;
 import com.mangaverse.provider.suwayomi.SuwayomiSourceProvider;
+import com.mangaverse.settings.SettingsService;
 
 /** Resolve códigos de provedor para implementações, respeitando o que está habilitado no banco. */
 @Component
@@ -26,14 +27,21 @@ public class ProviderRegistry {
     private final SuwayomiClient suwayomi;
     private final ProviderRepository repository;
     private final AppProperties properties;
+    private final SettingsService settings;
 
     public ProviderRegistry(MangaDexProvider mangaDex, ComicVineProvider comicVine, SuwayomiClient suwayomi,
-                            ProviderRepository repository, AppProperties properties) {
+                            ProviderRepository repository, AppProperties properties, SettingsService settings) {
         this.mangaDex = mangaDex;
         this.comicVine = comicVine;
         this.suwayomi = suwayomi;
         this.repository = repository;
         this.properties = properties;
+        this.settings = settings;
+    }
+
+    /** Fonte escondida porque é só de conteúdo adulto e o modo +18 está desligado. */
+    public boolean hidden(Provider p) {
+        return p.isAdult() && !settings.adultMode();
     }
 
     public Optional<ContentProvider> find(String code) {
@@ -80,6 +88,9 @@ public class ProviderRegistry {
             if (providerCodes != null && !providerCodes.isEmpty() && !providerCodes.contains(p.getCode())) {
                 continue;
             }
+            if (hidden(p)) {
+                continue; // fontes +18 só entram com o modo +18 ligado
+            }
             if (p.getType() == ProviderType.SUWAYOMI_SOURCE) {
                 if (!suwayomi.enabled()) {
                     continue;
@@ -111,6 +122,22 @@ public class ProviderRegistry {
 
     public List<ContentProvider> discoverable() {
         return searchable().stream().filter(p -> p.capabilities().discover()).toList();
+    }
+
+    /** Fonte do catálogo: o cadastro (nome, ícone, idioma) e a implementação. */
+    public record CatalogEntry(Provider provider, ContentProvider impl) {
+    }
+
+    /** Todas as fontes habilitadas que têm populares/recentes, sem o limite da pesquisa e sem as +18 escondidas. */
+    public List<CatalogEntry> catalog() {
+        List<CatalogEntry> out = new ArrayList<>();
+        for (Provider p : repository.findByEnabledTrueAndSupportsSearchTrueOrderByPriorityAsc()) {
+            if (hidden(p) || ComicVineProvider.CODE.equals(p.getCode())) {
+                continue;
+            }
+            find(p.getCode()).filter(impl -> impl.capabilities().discover()).ifPresent(impl -> out.add(new CatalogEntry(p, impl)));
+        }
+        return out;
     }
 
     private ContentProvider suwayomiProvider(Provider p) {
